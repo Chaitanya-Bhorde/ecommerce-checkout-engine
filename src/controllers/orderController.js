@@ -2,8 +2,16 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Cart = require('../models/Cart');
+const Idempotency = require('../models/Idempotency');
 
 const createOrder = async (req, res) => {
+  const idempotencyKey = req.headers['idempotency-key'];
+
+  const existing = await Idempotency.findOne({ key: idempotencyKey, user: req.user._id });
+  if (existing) {
+    return res.status(existing.response.statusCode).json(existing.response.body);
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 

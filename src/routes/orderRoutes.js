@@ -9,6 +9,7 @@ const {
   cancelOrder,
 } = require('../controllers/orderController');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { idempotencyMiddleware } = require('../middleware/idempotencyMiddleware');
 
 router.use(protect);
 
@@ -16,8 +17,8 @@ router.use(protect);
 router.get('/admin/all', admin, getAllOrders);
 router.put('/admin/:id/status', admin, updateOrderStatus);
 
-// Customer routes
-router.post('/', createOrder);
+// Customer routes — idempotency only on POST (create)
+router.post('/', idempotencyMiddleware, createOrder);
 router.get('/', getOrders);
 router.get('/:id', getOrderById);
 router.put('/:id/cancel', cancelOrder);
