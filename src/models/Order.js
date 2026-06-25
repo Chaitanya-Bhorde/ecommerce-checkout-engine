@@ -32,7 +32,11 @@ const paymentSchema = new mongoose.Schema({
     enum: ['razorpay', 'stripe', 'cod', null],
     default: null,
   },
-  paymentId: {
+  razorpayOrderId: {
+    type: String,
+    default: null,
+  },
+  razorpayPaymentId: {
     type: String,
     default: null,
   },

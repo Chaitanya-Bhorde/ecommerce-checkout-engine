@@ -26,7 +26,7 @@ const createPaymentOrder = async (req, res) => {
     );
 
     order.payment.method = 'razorpay';
-    order.payment.paymentId = razorpayOrder.id;
+    order.payment.razorpayOrderId = razorpayOrder.id;
     await order.save();
 
     await Ledger.create({
@@ -67,7 +67,7 @@ const verifyPayment = async (req, res) => {
       return res.status(400).json({ message: 'Payment verification failed — invalid signature' });
     }
 
-    const order = await Order.findOne({ 'payment.paymentId': razorpay_order_id });
+    const order = await Order.findOne({ 'payment.razorpayOrderId': razorpay_order_id });
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
@@ -76,7 +76,7 @@ const verifyPayment = async (req, res) => {
     session.startTransaction();
 
     try {
-      order.payment.paymentId = razorpay_payment_id;
+      order.payment.razorpayPaymentId = razorpay_payment_id;
       order.payment.paidAt = new Date();
       order.status = 'confirmed';
       order.statusHistory.push({

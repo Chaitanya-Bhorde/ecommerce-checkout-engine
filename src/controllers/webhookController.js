@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Ledger = require('../models/Ledger');
 const { verifyWebhookSignature } = require('../config/razorpay');
@@ -23,80 +23,89 @@ const handleRazorpayWebhook = async (req, res) => {
     const event = payload.event;
     const eventPayload = payload.payload;
 
-    switch (event) {
-      case 'payment.captured': {
-        const payment = eventPayload.payment.entity;
-        const razorpayOrderId = payment.order_id;
-        const razorpayPaymentId = payment.id;
-
-        const order = await Order.findOne({ 'payment.paymentId': razorpayOrderId });
-        if (!order) {
-          return res.status(200).json({ status: 'ignored', message: 'Order not found' });
-        }
-
-        if (order.status === 'confirmed') {
-          return res.status(200).json({ status: 'already_processed' });
-        }
-
-        order.payment.paymentId = razorpayPaymentId;
-        order.payment.paidAt = new Date();
-        order.status = 'confirmed';
-        order.statusHistory.push({
-          status: 'confirmed',
-          changedAt: new Date(),
-          note: 'Payment captured via webhook',
-        });
-        await order.save();
-
-        await Ledger.findOneAndUpdate(
-          { razorpayOrderId },
-          {
-            razorpayPaymentId,
-            status: 'completed',
-          }
-        );
-
-        break;
-      }
-
-      case 'payment.failed': {
-        const failedPayment = eventPayload.payment.entity;
-        const failedOrderId = failedPayment.order_id;
-
-        await Ledger.findOneAndUpdate(
-          { razorpayOrderId: failedOrderId },
-          { status: 'failed', description: `Payment failed: ${failedPayment.error_description || 'Unknown error'}` }
-        );
-
-        break;
-      }
-
-      case 'order.paid': {
-        const paidOrder = eventPayload.order.entity;
-        const paidRazorpayOrderId = paidOrder.id;
-
-        const existingOrder = await Order.findOne({ 'payment.paymentId': paidRazorpayOrderId });
-        if (existingOrder && existingOrder.status === 'pending') {
-          existingOrder.status = 'confirmed';
-          existingOrder.statusHistory.push({
-            status: 'confirmed',
-            changedAt: new Date(),
-            note: 'Order marked as paid via webhook',
-          });
-          await existingOrder.save();
-        }
-
-        break;
-      }
-
-      default:
-        break;
-    }
-
+    // RULE 1: Acknowledge Razorpay IMMEDIATELY — within < 2 seconds
+    // Prevents Razorpay from retrying the webhook for 24 hours
     res.status(200).json({ status: 'received' });
+
+    // RULE 2: Process heavy business logic asynchronously in background
+    // Uses setImmediate — not setTimeout. Guarantees execution after I/O callbacks
+    setImmediate(async () => {
+      const session = await mongoose.startSession();
+
+      try {
+        switch (event) {
+          case 'payment.captured': {
+            const payment = eventPayload.payment.entity;
+            const razorpayOrderId = payment.order_id;
+            const razorpayPaymentId = payment.id;
+
+            // RULE 3: ACID Transaction — Order + Ledger both succeed or both fail
+            // Prevents unreconciled financial state (Bug #2 fix)
+            await session.withTransaction(async () => {
+              // Correct lookup: use razorpayOrderId field (Bug #3 fix)
+              // Not paymentId — which is a different Razorpay identifier
+              const order = await Order.findOne({
+                'payment.razorpayOrderId': razorpayOrderId,
+              }).session(session);
+
+              if (!order || order.status === 'confirmed') {
+                return; // Idempotency — already processed
+              }
+
+              // Atomic dual update: Order status + Ledger status
+              order.payment.razorpayPaymentId = razorpayPaymentId;
+              order.payment.paidAt = new Date();
+              order.status = 'confirmed';
+              order.statusHistory.push({
+                status: 'confirmed',
+                changedAt: new Date(),
+                note: 'Payment captured securely via Razorpay Webhook',
+              });
+
+              await order.save({ session });
+
+              await Ledger.findOneAndUpdate(
+                { razorpayOrderId },
+                {
+                  razorpayPaymentId,
+                  status: 'completed',
+                },
+                { session }
+              );
+            });
+
+            break;
+          }
+
+          case 'payment.failed': {
+            const failedPayment = eventPayload.payment.entity;
+            const failedOrderId = failedPayment.order_id;
+
+            await Ledger.findOneAndUpdate(
+              { razorpayOrderId: failedOrderId },
+              {
+                status: 'failed',
+                description: `Payment failed: ${failedPayment.error_description || 'Unknown error'}`,
+              }
+            );
+
+            break;
+          }
+
+          default:
+            break;
+        }
+      } catch (bgError) {
+        console.error('CRITICAL: Background webhook processing error:', bgError.message);
+      } finally {
+        await session.endSession();
+      }
+    });
   } catch (error) {
-    console.error('Webhook error:', error.message);
-    res.status(200).json({ status: 'error', message: error.message });
+    console.error('Webhook structural error:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
   }
 };
 
