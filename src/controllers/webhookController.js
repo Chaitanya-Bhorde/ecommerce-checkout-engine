@@ -41,28 +41,34 @@ const handleRazorpayWebhook = async (req, res) => {
 
             // RULE 3: ACID Transaction — Order + Ledger both succeed or both fail
             // Prevents unreconciled financial state (Bug #2 fix)
-            await session.withTransaction(async () => {
-              // Correct lookup: use razorpayOrderId field (Bug #3 fix)
-              // Not paymentId — which is a different Razorpay identifier
-              const order = await Order.findOne({
-                'payment.razorpayOrderId': razorpayOrderId,
-              }).session(session);
+          await session.withTransaction(async () => {
+              // ATOMIC idempotency: findOneAndUpdate with status check
+              // If already confirmed, returns null — no duplicate processing
+              const order = await Order.findOneAndUpdate(
+                {
+                  'payment.razorpayOrderId': razorpayOrderId,
+                  status: { $ne: 'confirmed' },
+                },
+                {
+                  $set: {
+                    'payment.razorpayPaymentId': razorpayPaymentId,
+                    'payment.paidAt': new Date(),
+                    status: 'confirmed',
+                  },
+                  $push: {
+                    statusHistory: {
+                      status: 'confirmed',
+                      changedAt: new Date(),
+                      note: 'Payment captured securely via Razorpay Webhook',
+                    },
+                  },
+                },
+                { new: true, session }
+              );
 
-              if (!order || order.status === 'confirmed') {
-                return; // Idempotency — already processed
+              if (!order) {
+                return; // Already processed — idempotent
               }
-
-              // Atomic dual update: Order status + Ledger status
-              order.payment.razorpayPaymentId = razorpayPaymentId;
-              order.payment.paidAt = new Date();
-              order.status = 'confirmed';
-              order.statusHistory.push({
-                status: 'confirmed',
-                changedAt: new Date(),
-                note: 'Payment captured securely via Razorpay Webhook',
-              });
-
-              await order.save({ session });
 
               await Ledger.findOneAndUpdate(
                 { razorpayOrderId },
