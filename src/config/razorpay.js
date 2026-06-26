@@ -1,10 +1,24 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpayInstance = null;
+
+const getRazorpay = () => {
+  if (!razorpayInstance) {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      throw new Error('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be set in .env');
+    }
+
+    razorpayInstance = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+  }
+  return razorpayInstance;
+};
 
 const createRazorpayOrder = async (amount, currency = 'INR', receipt = '') => {
   const options = {
@@ -14,7 +28,7 @@ const createRazorpayOrder = async (amount, currency = 'INR', receipt = '') => {
     payment_capture: 1,
   };
 
-  const order = await razorpay.orders.create(options);
+  const order = await getRazorpay().orders.create(options);
   return order;
 };
 
@@ -37,4 +51,4 @@ const verifyWebhookSignature = (body, signature, secret) => {
   return expectedSignature === signature;
 };
 
-module.exports = { razorpay, createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature };
+module.exports = { getRazorpay, createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature };

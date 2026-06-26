@@ -8,6 +8,7 @@ const cartRoutes = require('./routes/cartRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const { handleRazorpayWebhook } = require('./controllers/webhookController');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
@@ -32,5 +33,8 @@ app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
+
+// Global error handler (must be last)
+app.use(errorHandler);
 
 module.exports = app;
