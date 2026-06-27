@@ -5,3 +5,4 @@ dist/
 *.log
 notes.md
 src/utils/seedAdmin.js
+client/dist/
