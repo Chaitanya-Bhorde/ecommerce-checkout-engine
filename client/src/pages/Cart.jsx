@@ -143,7 +143,7 @@ export default function Cart() {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
             <Link to="/products" style={{ padding: '0.55rem 1rem', background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '500' }}>Continue Shopping</Link>
-            <button style={{ padding: '0.65rem 1.2rem', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '600', opacity: 0.7, cursor: 'not-allowed' }} disabled>Proceed to Checkout</button>
+            <Link to="/checkout" style={{ padding: '0.65rem 1.2rem', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '600' }}>Proceed to Checkout</Link>
           </div>
         </div>
       )}

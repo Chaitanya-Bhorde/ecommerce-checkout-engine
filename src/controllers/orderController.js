@@ -16,7 +16,7 @@ const createOrder = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { shippingAddress } = req.body;
+    const { shippingAddress, paymentMethod } = req.body;
 
     const cart = await Cart.findOne({ user: req.user._id }).populate('items.product');
     if (!cart || cart.items.length === 0) {
@@ -79,6 +79,12 @@ const createOrder = async (req, res) => {
           tax,
           shippingCost,
           total,
+          payment: {
+            method: paymentMethod || null,
+            razorpayOrderId: null,
+            razorpayPaymentId: null,
+            paidAt: null,
+          },
           status: 'pending',
           statusHistory: [
             {

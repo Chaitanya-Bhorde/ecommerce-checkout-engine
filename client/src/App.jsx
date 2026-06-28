@@ -5,6 +5,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Products from './pages/Products';
 import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
+import Orders from './pages/Orders';
+import OrderConfirmation from './pages/OrderConfirmation';
 
 export default function App() {
   return (
@@ -18,6 +21,21 @@ export default function App() {
         <Route path="/cart" element={
           <ProtectedRoute>
             <Cart />
+          </ProtectedRoute>
+        } />
+        <Route path="/checkout" element={
+          <ProtectedRoute>
+            <Checkout />
+          </ProtectedRoute>
+        } />
+        <Route path="/orders" element={
+          <ProtectedRoute>
+            <Orders />
+          </ProtectedRoute>
+        } />
+        <Route path="/order-confirmation/:orderId" element={
+          <ProtectedRoute>
+            <OrderConfirmation />
           </ProtectedRoute>
         } />
       </Routes>

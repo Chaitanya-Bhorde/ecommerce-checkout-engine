@@ -47,6 +47,15 @@ export default function Navbar() {
         }}>
           Cart
         </Link>
+        <Link to="/orders" style={{
+          color: '#374151',
+          textDecoration: 'none',
+          fontSize: '0.95rem',
+          fontWeight: '500',
+          transition: 'color 0.2s',
+        }}>
+          Orders
+        </Link>
 
         {user ? (
           <>

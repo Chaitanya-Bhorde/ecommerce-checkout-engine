@@ -62,7 +62,15 @@ const orderSchema = new mongoose.Schema(
       state: { type: String, required: [true, 'State is required'] },
       pincode: { type: String, required: [true, 'Pincode is required'] },
     },
-    payment: paymentSchema,
+    payment: {
+      type: paymentSchema,
+      default: {
+        method: null,
+        razorpayOrderId: null,
+        razorpayPaymentId: null,
+        paidAt: null,
+      },
+    },
     subtotal: {
       type: Number,
       required: [true, 'Subtotal is required'],
@@ -114,7 +122,7 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
-orderSchema.index({ 'payment.paymentId': 1 });
+orderSchema.index({ 'payment.razorpayPaymentId': 1 });
 
 orderSchema.virtual('itemCount').get(function () {
   return this.items.reduce((total, item) => total + item.quantity, 0);

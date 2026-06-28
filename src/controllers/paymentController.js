@@ -15,7 +15,7 @@ const createPaymentOrder = async (req, res) => {
       return res.status(404).json({ message: 'Order not found or already processed' });
     }
 
-    if (order.payment.paymentId) {
+    if (order.payment.razorpayOrderId) {
       return res.status(400).json({ message: 'Payment already initiated for this order' });
     }
 
