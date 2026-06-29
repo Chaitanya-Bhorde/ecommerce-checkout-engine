@@ -10,6 +10,7 @@
     "client:install": "cd client && npm install",
     "client:dev": "cd client && npm run dev",
     "seed:demo": "node src/utils/seedDemo.js",
+    "seed:admin": "node src/utils/seedAdmin.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run client:dev\""
   },
   "keywords": [],

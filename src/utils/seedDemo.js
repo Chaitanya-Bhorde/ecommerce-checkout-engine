@@ -1,52 +1,164 @@
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
+const User = require('../models/User');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
-
-dotenv.config();
+const bcrypt = require('bcryptjs');
 
 const seedDemo = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
+    // Connect to MongoDB
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log('Connected to MongoDB');
 
-    const categoryNames = ['Electronics', 'Clothing', 'Books', 'Home & Garden', 'Sports'];
-    const categoryIds = [];
+    // Clear existing data
+    await User.deleteMany({});
+    await Category.deleteMany({});
+    await Product.deleteMany({});
+    console.log('Cleared existing data');
 
-    for (const name of categoryNames) {
-      const cat = await Category.findOneAndUpdate(
-        { name },
-        { name, isActive: true },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-      categoryIds.push(cat._id);
-      console.log(`Category ready: ${name} (${cat._id})`);
-    }
+    // Create Admin User
+    const adminPassword = await bcrypt.hash('admin123', 10);
+    const admin = await User.create({
+      name: 'Admin User',
+      email: 'admin@example.com',
+      password: adminPassword,
+      role: 'admin',
+    });
+    console.log('✓ Created admin user: admin@example.com / admin123');
 
-    const demoSample = [
-      { name: 'Wireless Headphones', description: 'Noise cancelling over-ear headphones with 20hr battery.', price: 2499, comparePrice: 3999, category: categoryIds[0], stock: 50, images: ['https://via.placeholder.com/400x300?text=Headphones'], ratings: 4.5, numReviews: 120, isActive: true },
-      { name: 'Smart Watch', description: 'Fitness tracker with heart rate monitor and GPS.', price: 4999, comparePrice: 6999, category: categoryIds[0], stock: 30, images: ['https://via.placeholder.com/400x300?text=Smart+Watch'], ratings: 4.2, numReviews: 85, isActive: true },
-      { name: 'Cotton T-Shirt', description: 'Breathable cotton crew neck t-shirt for daily wear.', price: 599, comparePrice: 899, category: categoryIds[1], stock: 200, images: ['https://via.placeholder.com/400x300?text=T-Shirt'], ratings: 4.0, numReviews: 300, isActive: true },
-      { name: 'Denim Jacket', description: 'Classic fit denim jacket with button closure.', price: 1899, comparePrice: 2499, category: categoryIds[1], stock: 25, images: ['https://via.placeholder.com/400x300?text=Jacket'], ratings: 4.6, numReviews: 45, isActive: true },
-      { name: 'JavaScript Guide', description: 'Comprehensive guide to modern JavaScript (ES6+).', price: 799, comparePrice: 1199, category: categoryIds[2], stock: 100, images: ['https://via.placeholder.com/400x300?text=JS+Book'], ratings: 4.8, numReviews: 210, isActive: true },
-      { name: 'Garden Tool Set', description: '5-piece stainless steel garden tool set with pouch.', price: 1299, comparePrice: 1799, category: categoryIds[3], stock: 40, images: ['https://via.placeholder.com/400x300?text=Tools'], ratings: 4.1, numReviews: 60, isActive: true },
-      { name: 'Yoga Mat', description: 'Non-slip eco-friendly yoga mat (6mm thickness).', price: 899, comparePrice: 1299, category: categoryIds[4], stock: 80, images: ['https://via.placeholder.com/400x300?text=Yoga+Mat'], ratings: 4.4, numReviews: 150, isActive: true },
-      { name: 'Running Shoes', description: 'Lightweight mesh running shoes with cushioned sole.', price: 2199, comparePrice: 2999, category: categoryIds[4], stock: 35, images: ['https://via.placeholder.com/400x300?text=Shoes'], ratings: 4.3, numReviews: 190, isActive: true },
-    ];
+    // Create Customer User
+    const customerPassword = await bcrypt.hash('customer123', 10);
+    const customer = await User.create({
+      name: 'John Doe',
+      email: 'customer@example.com',
+      password: customerPassword,
+      role: 'customer',
+    });
+    console.log('✓ Created customer user: customer@example.com / customer123');
 
-    for (const data of demoSample) {
-      const product = await Product.findOneAndUpdate(
-        { name: data.name },
-        data,
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-      console.log(`Product ready: ${product.name} (${product._id})`);
-    }
+    // Create Categories
+    const categories = await Category.insertMany([
+      {
+        name: 'Electronics',
+        description: 'Electronic devices and gadgets',
+        isActive: true,
+      },
+      {
+        name: 'Clothing',
+        description: 'Fashion and apparel',
+        isActive: true,
+      },
+      {
+        name: 'Home & Garden',
+        description: 'Home decor and garden supplies',
+        isActive: true,
+      },
+      {
+        name: 'Books',
+        description: 'Books and publications',
+        isActive: false,
+      },
+    ]);
+    console.log('✓ Created 4 categories');
 
-    console.log('\nDemo seeding completed successfully!');
-    await mongoose.disconnect();
+    // Create Products
+    const products = await Product.insertMany([
+      {
+        name: 'Wireless Headphones',
+        description: 'High-quality wireless headphones with noise cancellation',
+        price: 2999,
+        stock: 50,
+        category: categories[0]._id,
+        images: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Smart Watch',
+        description: 'Feature-rich smartwatch with health tracking',
+        price: 4999,
+        stock: 30,
+        category: categories[0]._id,
+        images: ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Laptop Stand',
+        description: 'Ergonomic aluminum laptop stand',
+        price: 1499,
+        stock: 100,
+        category: categories[0]._id,
+        images: ['https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Cotton T-Shirt',
+        description: 'Comfortable 100% cotton t-shirt',
+        price: 599,
+        stock: 200,
+        category: categories[1]._id,
+        images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Denim Jeans',
+        description: 'Classic fit denim jeans',
+        price: 1299,
+        stock: 75,
+        category: categories[1]._id,
+        images: ['https://images.unsplash.com/photo-1542272604-787c3835535d?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Running Shoes',
+        description: 'Lightweight running shoes for athletes',
+        price: 2499,
+        stock: 40,
+        category: categories[1]._id,
+        images: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Indoor Plant',
+        description: 'Beautiful indoor plant for home decor',
+        price: 399,
+        stock: 60,
+        category: categories[2]._id,
+        images: ['https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'Wall Clock',
+        description: 'Modern minimalist wall clock',
+        price: 899,
+        stock: 45,
+        category: categories[2]._id,
+        images: ['https://images.unsplash.com/photo-1563861826100-9cb868fdbe1c?w=500'],
+        isActive: true,
+      },
+      {
+        name: 'JavaScript Guide',
+        description: 'Complete guide to JavaScript programming',
+        price: 699,
+        stock: 0,
+        category: categories[3]._id,
+        images: ['https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500'],
+        isActive: false,
+      },
+    ]);
+    console.log('✓ Created 9 products');
+
+    console.log('\n✅ Demo data seeded successfully!');
+    console.log('\n📋 Test Accounts:');
+    console.log('  Admin: admin@example.com / admin123');
+    console.log('  Customer: customer@example.com / customer123');
+    console.log('\n🛍️  Products: 9 products across 4 categories');
+    console.log('📂 Categories: 4 categories (3 active, 1 inactive)');
+
+    await mongoose.connection.close();
+    console.log('\n✓ Database connection closed');
     process.exit(0);
   } catch (error) {
-    console.error('Error seeding demo data:', error.message);
+    console.error('❌ Error seeding demo data:', error);
     process.exit(1);
   }
 };
