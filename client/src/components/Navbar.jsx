@@ -59,6 +59,19 @@ export default function Navbar() {
 
         {user ? (
           <>
+            {user.role === 'admin' && (
+              <Link to="/admin" style={{
+                color: '#4f46e5',
+                textDecoration: 'none',
+                fontSize: '0.95rem',
+                fontWeight: '600',
+                padding: '0.35rem 0.75rem',
+                background: '#eef2ff',
+                borderRadius: '8px',
+              }}>
+                Admin Panel
+              </Link>
+            )}
             <span style={{
               fontSize: '0.9rem',
               color: '#4b5563',
