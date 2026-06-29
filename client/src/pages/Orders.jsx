@@ -55,6 +55,7 @@ export default function Orders() {
       processing: '#8b5cf6',
       shipped: '#06b6d4',
       delivered: '#10b981',
+      received: '#059669',
       cancelled: '#ef4444',
       refunded: '#6b7280',
     };
@@ -113,7 +114,7 @@ export default function Orders() {
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(order.status) }}
                     >
-                      {order.status.toUpperCase()}
+                      {order.status === 'received' ? '✓ RECEIVED' : order.status.toUpperCase()}
                     </span>
                   </div>
 

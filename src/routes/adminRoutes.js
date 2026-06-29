@@ -146,7 +146,8 @@ router.put('/orders/:orderId/status', async (req, res) => {
       confirmed: ['processing', 'cancelled'],
       processing: ['shipped', 'cancelled'],
       shipped: ['delivered'],
-      delivered: ['refunded'],
+      delivered: ['received', 'refunded'],
+      received: [],
       cancelled: [],
       refunded: [],
     };
