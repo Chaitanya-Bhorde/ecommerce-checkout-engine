@@ -2,8 +2,19 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 
+// Category ID to name mapping for display
+const categoryNames = {
+  'Electronics': 'Electronics',
+  'Clothing': 'Clothing',
+  'Home & Garden': 'Home & Garden',
+  'Sports & Fitness': 'Sports & Fitness',
+  'Books': 'Books',
+  'Beauty & Health': 'Beauty & Health',
+};
+
 export default function AdminProducts() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,6 +29,19 @@ export default function AdminProducts() {
     images: [],
     isActive: true,
   });
+
+  // Fetch categories for dropdown
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const res = await api.get('/categories?isActive=true');
+        setCategories(res.data);
+      } catch (err) {
+        console.error('Failed to fetch categories', err);
+      }
+    };
+    fetchCategories();
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -43,12 +67,15 @@ export default function AdminProducts() {
         price: Number(formData.price),
         stock: Number(formData.stock),
         category: formData.category,
+        images: formData.images.filter(url => url.trim() !== ''),
       };
 
       if (editingProduct) {
         await api.put(`/products/${editingProduct._id}`, productData);
+        alert('Product updated successfully!');
       } else {
         await api.post('/products', productData);
+        alert('Product created successfully!');
       }
 
       setShowModal(false);
@@ -59,12 +86,12 @@ export default function AdminProducts() {
         price: '',
         category: '',
         stock: '',
-        images: [],
+        images: [''],
         isActive: true,
       });
       fetchProducts();
     } catch (err) {
-      alert('Failed to save product');
+      alert(err.response?.data?.message || 'Failed to save product');
     }
   };
 
@@ -161,10 +188,10 @@ export default function AdminProducts() {
                   <div className="product-info">
                     <h3>{product.name}</h3>
                     <p className="product-category">{product.category?.name || 'Uncategorized'}</p>
-                    <p className="product-price">₹{product.price.toFixed(2)}</p>
+                    <p className="product-price">₹{product.price.toLocaleString('en-IN')}</p>
                     <p className="product-stock">
                       Stock: <span className={product.stock > 0 ? 'in-stock' : 'out-stock'}>
-                        {product.stock > 0 ? `${product.stock} available` : 'Out of stock'}
+                        {product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}
                       </span>
                     </p>
                   </div>
@@ -216,16 +243,21 @@ export default function AdminProducts() {
                       required
                     />
                   </div>
-                  <div className="form-group">
-                    <label>Category *</label>
-                    <input
-                      type="text"
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      required
-                      placeholder="Category ID"
-                    />
-                  </div>
+                <div className="form-group">
+                  <label>Category *</label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {categories.map((cat) => (
+                      <option key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 </div>
 
                 <div className="form-group">
@@ -263,10 +295,17 @@ export default function AdminProducts() {
                   <label>Image URLs (one per line)</label>
                   <textarea
                     value={formData.images.join('\n')}
-                    onChange={(e) => setFormData({ ...formData, images: e.target.value.split('\n').filter(url => url.trim()) })}
+                    onChange={(e) => setFormData({ ...formData, images: e.target.value.split('\n') })}
                     rows="3"
-                    placeholder="https://example.com/image1.jpg"
+                    placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg"
                   />
+                  {formData.images.length > 0 && (
+                    <div className="image-preview">
+                      {formData.images.map((url, idx) => (
+                        <img key={idx} src={url} alt={`Preview ${idx + 1}`} />
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group checkbox-group">

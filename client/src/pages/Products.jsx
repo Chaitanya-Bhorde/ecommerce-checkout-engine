@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import ProductCard from '../components/ProductCard';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,6 +17,7 @@ export default function Products() {
   });
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -71,7 +73,10 @@ export default function Products() {
 
   const addToCart = async (productId) => {
     if (!user) {
-      alert('Please login to add items to cart');
+      const confirmLogin = window.confirm('Please login to add items to cart. Click OK to go to login page.');
+      if (confirmLogin) {
+        navigate('/login');
+      }
       return;
     }
     try {
