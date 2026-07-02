@@ -118,7 +118,7 @@ export default function Products() {
           type="text"
           placeholder="Search products..."
           value={filters.search}
-          onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+          onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
           style={{
             padding: '0.55rem 0.85rem',
             border: '1px solid #d1d5db',
@@ -130,7 +130,7 @@ export default function Products() {
 
         <select
           value={filters.category}
-          onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+          onChange={(e) => setFilters({ ...filters, category: e.target.value, page: 1 })}
           style={selectStyle}
         >
           <option value="">All Categories</option>
@@ -141,7 +141,7 @@ export default function Products() {
 
         <select
           value={filters.sort}
-          onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+          onChange={(e) => setFilters({ ...filters, sort: e.target.value, page: 1 })}
           style={selectStyle}
         >
           <option value="">Sort By</option>
@@ -164,7 +164,7 @@ export default function Products() {
           <input
             type="checkbox"
             checked={filters.inStock}
-            onChange={(e) => setFilters({ ...filters, inStock: e.target.checked })}
+            onChange={(e) => setFilters({ ...filters, inStock: e.target.checked, page: 1 })}
             style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }}
           />
           In stock only
