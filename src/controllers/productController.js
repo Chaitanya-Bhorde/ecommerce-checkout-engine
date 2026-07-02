@@ -24,7 +24,7 @@ const getProducts = async (req, res) => {
       limit = 10,
     } = req.query;
 
-    const filter = {};
+    const filter = { isActive: true };
 
     if (search) {
       filter.$text = { $search: search };
