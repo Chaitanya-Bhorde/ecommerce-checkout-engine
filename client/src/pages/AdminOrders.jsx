@@ -9,7 +9,7 @@ export default function AdminOrders() {
   const [error, setError] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [statusUpdate, setStatusUpdate] = useState({});
+  const [selectedStatus, setSelectedStatus] = useState('');
 
   const currentPage = Number(searchParams.get('page')) || 1;
   const statusFilter = searchParams.get('status') || '';
@@ -159,15 +159,19 @@ export default function AdminOrders() {
                       </td>
                       <td>
                         <select
-                          value={statusUpdate[order._id] || order.status}
-                          onChange={(e) => handleStatusChange(order._id, e.target.value)}
-                          className={`status-select status-${order.status}`}
+                          value={selectedStatus || order.status}
+                          onChange={(e) => {
+                            setSelectedStatus(e.target.value);
+                            handleStatusChange(order._id, e.target.value);
+                          }}
+                          className="status-select"
                         >
-                          <option value="pending">Pending</option>
-                          <option value="confirmed">Confirmed</option>
-                          <option value="processing">Processing</option>
-                          <option value="shipped">Shipped</option>
-                          <option value="delivered">Delivered</option>
+                          <option value="pending">Pending (0%)</option>
+                          <option value="confirmed">Order Confirmed (25%)</option>
+                          <option value="processing">Processing (50%)</option>
+                          <option value="shipped">Shipped (50%)</option>
+                          <option value="out_for_delivery">Out for Delivery (75%)</option>
+                          <option value="delivered">Delivered (100%)</option>
                           <option value="cancelled">Cancelled</option>
                           <option value="refunded">Refunded</option>
                         </select>

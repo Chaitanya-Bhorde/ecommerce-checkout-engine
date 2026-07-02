@@ -218,11 +218,25 @@ const updateOrderStatus = async (req, res) => {
       pending: ['confirmed', 'cancelled'],
       confirmed: ['processing', 'cancelled'],
       processing: ['shipped', 'cancelled'],
-      shipped: ['delivered'],
+      shipped: ['out_for_delivery', 'cancelled'],
+      out_for_delivery: ['delivered', 'cancelled'],
       delivered: ['received', 'refunded'],
       received: [],
       cancelled: [],
       refunded: [],
+    };
+
+    // Map status to delivery progress
+    const statusProgressMap = {
+      pending: 0,
+      confirmed: 25,
+      processing: 50,
+      shipped: 50,
+      out_for_delivery: 75,
+      delivered: 100,
+      received: 100,
+      cancelled: 0,
+      refunded: 0,
     };
 
     const order = await Order.findById(req.params.id);
@@ -238,11 +252,13 @@ const updateOrderStatus = async (req, res) => {
     }
 
     order.status = status;
+    order.deliveryProgress = statusProgressMap[status] || 0;
     order.statusHistory.push({
       status,
       changedAt: new Date(),
       changedBy: req.user._id,
       note: note || '',
+      deliveryProgress: order.deliveryProgress,
     });
 
     await order.save();

@@ -54,12 +54,28 @@ export default function Orders() {
       confirmed: '#3b82f6',
       processing: '#8b5cf6',
       shipped: '#06b6d4',
+      out_for_delivery: '#f97316',
       delivered: '#10b981',
       received: '#059669',
       cancelled: '#ef4444',
       refunded: '#6b7280',
     };
     return colors[status] || '#6b7280';
+  };
+
+  const getStatusText = (status) => {
+    const statusTexts = {
+      pending: 'Pending',
+      confirmed: 'Order Confirmed',
+      processing: 'Processing',
+      shipped: 'Shipped',
+      out_for_delivery: 'Out for Delivery',
+      delivered: 'Delivered',
+      received: 'Received',
+      cancelled: 'Cancelled',
+      refunded: 'Refunded',
+    };
+    return statusTexts[status] || status;
   };
 
   if (loading) {
@@ -114,7 +130,7 @@ export default function Orders() {
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(order.status) }}
                     >
-                      {order.status === 'received' ? '✓ RECEIVED' : order.status.toUpperCase()}
+                      {getStatusText(order.status)}
                     </span>
                   </div>
 
@@ -148,6 +164,37 @@ export default function Orders() {
                       )}
                     </div>
                   </div>
+
+                  {/* Delivery Progress Bar */}
+                  {order.deliveryProgress > 0 && (
+                    <div style={{ padding: '0 1.1rem 1.1rem' }}>
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#374151' }}>
+                            Delivery Progress
+                          </span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#4f46e5' }}>
+                            {order.deliveryProgress}%
+                          </span>
+                        </div>
+                        <div style={{
+                          width: '100%',
+                          height: '8px',
+                          backgroundColor: '#e5e7eb',
+                          borderRadius: '9999px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            width: `${order.deliveryProgress}%`,
+                            height: '100%',
+                            backgroundColor: getStatusColor(order.status),
+                            borderRadius: '9999px',
+                            transition: 'width 0.3s ease',
+                          }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

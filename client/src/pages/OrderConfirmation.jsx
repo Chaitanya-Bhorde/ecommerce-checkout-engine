@@ -46,6 +46,36 @@ export default function OrderConfirmation() {
     );
   }
 
+  const getStatusColor = (status) => {
+    const colors = {
+      pending: '#f59e0b',
+      confirmed: '#3b82f6',
+      processing: '#8b5cf6',
+      shipped: '#06b6d4',
+      out_for_delivery: '#f97316',
+      delivered: '#10b981',
+      received: '#059669',
+      cancelled: '#ef4444',
+      refunded: '#6b7280',
+    };
+    return colors[status] || '#6b7280';
+  };
+
+  const getStatusText = (status) => {
+    const statusTexts = {
+      pending: 'Pending',
+      confirmed: 'Order Confirmed',
+      processing: 'Processing',
+      shipped: 'Shipped',
+      out_for_delivery: 'Out for Delivery',
+      delivered: 'Delivered',
+      received: 'Received',
+      cancelled: 'Cancelled',
+      refunded: 'Refunded',
+    };
+    return statusTexts[status] || status;
+  };
+
   return (
     <div className="confirmation-page">
       <div className="container">
@@ -123,6 +153,48 @@ export default function OrderConfirmation() {
               )}
             </div>
           </div>
+
+          {/* Delivery Progress Section */}
+          {order.deliveryProgress > 0 && (
+            <div className="detail-section">
+              <h2>Delivery Tracking</h2>
+              <div className="delivery-tracking">
+                <div className="progress-header">
+                  <span className="progress-label">Delivery Progress</span>
+                  <span className="progress-percentage">{order.deliveryProgress}%</span>
+                </div>
+                <div className="progress-bar-container">
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{
+                        width: `${order.deliveryProgress}%`,
+                        backgroundColor: getStatusColor(order.status),
+                      }}
+                    ></div>
+                  </div>
+                </div>
+                <div className="progress-steps">
+                  <div className={`progress-step ${order.deliveryProgress >= 25 ? 'completed' : ''}`}>
+                    <div className="step-indicator"></div>
+                    <span>Confirmed</span>
+                  </div>
+                  <div className={`progress-step ${order.deliveryProgress >= 50 ? 'completed' : ''}`}>
+                    <div className="step-indicator"></div>
+                    <span>Processing</span>
+                  </div>
+                  <div className={`progress-step ${order.deliveryProgress >= 75 ? 'completed' : ''}`}>
+                    <div className="step-indicator"></div>
+                    <span>Out for Delivery</span>
+                  </div>
+                  <div className={`progress-step ${order.deliveryProgress >= 100 ? 'completed' : ''}`}>
+                    <div className="step-indicator"></div>
+                    <span>Delivered</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="confirmation-actions">

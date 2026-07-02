@@ -93,8 +93,14 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'received', 'cancelled', 'refunded'],
+      enum: ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'received', 'cancelled', 'refunded'],
       default: 'pending',
+    },
+    deliveryProgress: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
     },
     statusHistory: [
       {
@@ -102,6 +108,7 @@ const orderSchema = new mongoose.Schema(
         changedAt: { type: Date, default: Date.now },
         changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         note: { type: String, default: '' },
+        deliveryProgress: { type: Number, default: 0 },
       },
     ],
     trackingId: {
