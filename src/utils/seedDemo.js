@@ -17,15 +17,15 @@ const seedDemo = async () => {
     await Product.deleteMany({});
     console.log('Cleared existing data');
 
-    // Create Admin User
-    const adminPassword = await bcrypt.hash('admin123', 10);
+    // Create Admin User (matching .env credentials)
+    const adminPassword = await bcrypt.hash('Admin@123', 10);
     const admin = await User.create({
       name: 'Admin User',
-      email: 'admin@example.com',
+      email: 'admin@ecommerce.com',
       password: adminPassword,
       role: 'admin',
     });
-    console.log('✓ Created admin user: admin@example.com / admin123');
+    console.log('✓ Created admin user: admin@ecommerce.com / Admin@123');
 
     // Create Customer User
     const customerPassword = await bcrypt.hash('customer123', 10);
@@ -727,7 +727,7 @@ const seedDemo = async () => {
 
     console.log('\n✅ Demo data seeded successfully!');
     console.log('\n📋 Test Accounts:');
-    console.log('  Admin: admin@example.com / admin123');
+    console.log('  Admin: admin@ecommerce.com / Admin@123');
     console.log('  Customer: customer@example.com / customer123');
     console.log('\n🛍️  Products: 55 products across 6 categories');
     console.log('📂 Categories: 6 categories (all active except Books)');
