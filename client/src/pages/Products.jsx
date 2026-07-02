@@ -30,6 +30,8 @@ export default function Products() {
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+    
     const fetchProducts = async () => {
       setLoading(true);
       try {
@@ -42,15 +44,29 @@ export default function Products() {
         params.set('limit', '12');
 
         const res = await api.get(`/products?${params.toString()}`);
-        setProducts(res.data.products);
-        setPagination(res.data.pagination);
+        
+        // Only update state if this is the latest request
+        if (!isCancelled) {
+          setProducts(res.data.products);
+          setPagination(res.data.pagination);
+        }
       } catch (err) {
-        console.error('Failed to fetch products', err);
+        if (!isCancelled) {
+          console.error('Failed to fetch products', err);
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
+    
     fetchProducts();
+    
+    // Cleanup function to cancel pending requests
+    return () => {
+      isCancelled = true;
+    };
   }, [filters.search, filters.category, filters.sort, filters.inStock, filters.page]);
 
   const addToCart = async (productId) => {
