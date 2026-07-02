@@ -18,21 +18,21 @@ const seedDemo = async () => {
     console.log('Cleared existing data');
 
     // Create Admin User (matching .env credentials)
-    const adminPassword = await bcrypt.hash('Admin@123', 10);
+    // Note: Password will be auto-hashed by User model pre-save hook
     const admin = await User.create({
       name: 'Admin User',
       email: 'admin@ecommerce.com',
-      password: adminPassword,
+      password: 'Admin@123',
       role: 'admin',
     });
     console.log('✓ Created admin user: admin@ecommerce.com / Admin@123');
 
     // Create Customer User
-    const customerPassword = await bcrypt.hash('customer123', 10);
+    // Note: Password will be auto-hashed by User model pre-save hook
     const customer = await User.create({
       name: 'John Doe',
       email: 'customer@example.com',
-      password: customerPassword,
+      password: 'customer123',
       role: 'customer',
     });
     console.log('✓ Created customer user: customer@example.com / customer123');
