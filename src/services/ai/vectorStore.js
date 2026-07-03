@@ -282,5 +282,3 @@ module.exports = {
   createVectorIndex,
   vectorStore,
 };
-
-module.exports = vectorStore;
