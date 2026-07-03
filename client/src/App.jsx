@@ -15,6 +15,7 @@ import AdminProducts from './pages/AdminProducts';
 import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminLedger from './pages/AdminLedger';
+import ChatWidget from './components/ChatWidget/ChatWidget';
 
 export default function App() {
   return (
@@ -83,6 +84,9 @@ export default function App() {
           </AdminRoute>
         } />
       </Routes>
+      
+      {/* AI Chat Widget - Available on all pages */}
+      <ChatWidget />
     </div>
   );
 }
