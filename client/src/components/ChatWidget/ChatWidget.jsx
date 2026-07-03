@@ -1,93 +1,102 @@
-import { useState, useEffect, useRef } from 'react';
-import { api } from '../../services/api';
+import { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
 import './ChatWidget.css';
 
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [userId] = useState(() => localStorage.getItem('userId') || 'guest');
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
   const messagesEndRef = useRef(null);
+  const userId = localStorage.getItem('userId') || 'guest';
 
-  const scrollToBottom = () => {
+  // Load chat history on mount
+  useEffect(() => {
+    if (isOpen) {
+      loadChatHistory();
+      loadSuggestions();
+    }
+  }, [isOpen]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
   }, [messages]);
-
-  useEffect(() => {
-    // Load chat history on mount
-    loadChatHistory();
-  }, []);
 
   const loadChatHistory = async () => {
     try {
-      const res = await api.get(`/ai/chat/history/${userId}`);
-      if (res.data && res.data.length > 0) {
-        setMessages(res.data);
-      } else {
-        // Welcome message
-        setMessages([
-          {
-            role: 'assistant',
-            content: 'Hi! 👋 I\'m your AI assistant. How can I help you today?\n\nI can help you with:\n- Order tracking\n- Product recommendations\n- Return/refund queries\n- General questions',
-            timestamp: new Date(),
-          },
-        ]);
-      }
-    } catch (err) {
-      console.error('Failed to load chat history:', err);
-      // Set welcome message on error
-      setMessages([
-        {
-          role: 'assistant',
-          content: 'Hi! 👋 I\'m your AI assistant. How can I help you today?\n\nI can help you with:\n- Order tracking\n- Product recommendations\n- Return/refund queries\n- General questions',
-          timestamp: new Date(),
-        },
-      ]);
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/ai/chat/history/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessages(res.data.history || []);
+    } catch (error) {
+      console.error('Error loading chat history:', error);
     }
   };
 
-  const sendMessage = async () => {
-    if (!inputMessage.trim()) return;
+  const loadSuggestions = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/ai/chat/suggestions/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSuggestions(res.data.suggestions || []);
+    } catch (error) {
+      console.error('Error loading suggestions:', error);
+    }
+  };
 
-    const userMessage = {
-      role: 'user',
-      content: inputMessage,
-      timestamp: new Date(),
-    };
+  const sendMessage = async (text = input) => {
+    if (!text.trim() || loading) return;
 
+    const userMessage = { role: 'user', content: text };
     setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsTyping(true);
+    setInput('');
+    setLoading(true);
 
     try {
-      const res = await api.post('/ai/chat', {
-        message: inputMessage,
-        userId: userId,
-      });
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        '/api/ai/chat',
+        { message: text, userId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      const aiMessage = {
-        role: 'assistant',
-        content: res.data.response,
-        timestamp: new Date(),
-      };
-
+      const aiMessage = { role: 'assistant', content: res.data.response };
       setMessages(prev => [...prev, aiMessage]);
-    } catch (err) {
-      console.error('Chat error:', err);
-      const errorMessage = {
-        role: 'assistant',
-        content: 'Sorry, I\'m having trouble right now. Please try again or contact support.',
-        timestamp: new Date(),
-        isError: true,
+      
+      // Update suggestions based on AI response
+      setSuggestions(res.data.suggestions || []);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage = { 
+        role: 'assistant', 
+        content: "I'm sorry, I'm having trouble right now. Please try again or contact support." 
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
-      setIsTyping(false);
+      setLoading(false);
+    }
+  };
+
+  const clearChat = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/ai/chat/clear', 
+        { userId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setMessages([]);
+      setSuggestions([
+        'Track my order',
+        'Product recommendations',
+        'Return policy',
+        'Talk to human agent',
+      ]);
+    } catch (error) {
+      console.error('Error clearing chat:', error);
     }
   };
 
@@ -98,75 +107,80 @@ export default function ChatWidget() {
     }
   };
 
-  const clearChat = async () => {
-    try {
-      await api.post('/ai/chat/clear', { userId });
-      setMessages([
-        {
-          role: 'assistant',
-          content: 'Chat cleared! How can I help you?',
-          timestamp: new Date(),
-        },
-      ]);
-    } catch (err) {
-      console.error('Failed to clear chat:', err);
-    }
-  };
-
   return (
-    <div className="chat-widget">
-      {/* Chat Button */}
+    <div className="chat-widget-container">
+      {/* Chat Toggle Button */}
       {!isOpen && (
-        <button className="chat-button" onClick={() => setIsOpen(true)}>
-          💬 Chat with AI
+        <button 
+          className="chat-toggle-btn"
+          onClick={() => setIsOpen(true)}
+          title="Chat with AI"
+        >
+          💬
         </button>
       )}
 
       {/* Chat Window */}
       {isOpen && (
         <div className="chat-window">
-          {/* Header */}
+          {/* Header - Always Visible */}
           <div className="chat-header">
-            <div className="chat-title">
-              <span className="chat-icon">🤖</span>
+            <div className="chat-header-info">
+              <span className="chat-avatar">🤖</span>
               <div>
                 <h3>AI Assistant</h3>
                 <span className="chat-status">Online</span>
               </div>
             </div>
-            <div className="chat-actions">
-              <button onClick={clearChat} className="chat-action-btn" title="Clear chat">
+            <div className="chat-header-actions">
+              <button 
+                onClick={clearChat}
+                className="chat-clear-btn"
+                title="Clear chat"
+              >
                 🗑️
               </button>
-              <button onClick={() => setIsOpen(false)} className="chat-action-btn" title="Close">
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="chat-close-btn"
+                title="Close chat"
+              >
                 ✕
               </button>
             </div>
           </div>
 
-          {/* Messages */}
+          {/* Messages Area */}
           <div className="chat-messages">
+            {messages.length === 0 && (
+              <div className="chat-welcome">
+                <h4>Hi! 👋 I'm your AI assistant</h4>
+                <p>How can I help you today?</p>
+                <div className="chat-features">
+                  <span>📦 Order tracking</span>
+                  <span>💡 Product recommendations</span>
+                  <span>↩️ Return/refund queries</span>
+                </div>
+              </div>
+            )}
+
             {messages.map((msg, index) => (
               <div
                 key={index}
-                className={`chat-message ${msg.role === 'user' ? 'user-message' : 'assistant-message'} ${msg.isError ? 'error-message' : ''}`}
+                className={`chat-message ${msg.role === 'user' ? 'user-message' : 'ai-message'}`}
               >
                 <div className="message-content">
                   {msg.role === 'assistant' && <span className="message-avatar">🤖</span>}
                   <div className="message-text">
-                    {msg.content.split('\n').map((line, i) => (
-                      <p key={i}>{line}</p>
-                    ))}
+                    {msg.content}
                   </div>
                   {msg.role === 'user' && <span className="message-avatar">👤</span>}
                 </div>
-                <span className="message-time">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
               </div>
             ))}
-            {isTyping && (
-              <div className="chat-message assistant-message">
+
+            {loading && (
+              <div className="chat-message ai-message">
                 <div className="message-content">
                   <span className="message-avatar">🤖</span>
                   <div className="message-text typing-indicator">
@@ -177,29 +191,44 @@ export default function ChatWidget() {
                 </div>
               </div>
             )}
+
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick Replies */}
-          <div className="chat-quick-replies">
-            <button onClick={() => setInputMessage('Track my order')}>📦 Track Order</button>
-            <button onClick={() => setInputMessage('Show me product recommendations')}>🎁 Recommendations</button>
-            <button onClick={() => setInputMessage('What is your return policy?')}>↩️ Return Policy</button>
-          </div>
+          {/* Suggestions - Only show when not loading and has suggestions */}
+          {!loading && suggestions.length > 0 && (
+            <div className="chat-suggestions">
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  onClick={() => sendMessage(suggestion)}
+                  className="suggestion-btn"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* Input */}
-          <div className="chat-input-container">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              className="chat-input"
-            />
-            <button onClick={sendMessage} className="chat-send-btn" disabled={!inputMessage.trim()}>
-              Send
-            </button>
+          {/* Input Area - Always Visible */}
+          <div className="chat-input-area">
+            <div className="chat-input-container">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message..."
+                disabled={loading}
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={loading || !input.trim()}
+                className="chat-send-btn"
+              >
+                Send
+              </button>
+            </div>
           </div>
         </div>
       )}

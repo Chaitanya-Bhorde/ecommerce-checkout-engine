@@ -1,164 +1,266 @@
 const express = require('express');
 const router = express.Router();
 const { chat, clearChatHistory, getChatHistory, shouldEscalateToHuman, getSuggestedReplies } = require('../services/ai/chatbot');
-const { initVectorStore, bulkAddDocuments, getStats } = require('../services/ai/vectorStore');
-const { knowledgeBase } = require('../services/ai/knowledgeBase');
 const { protect } = require('../middleware/authMiddleware');
 
-// Initialize vector store on server start
-let vectorStoreInitialized = false;
-
-async function ensureVectorStore() {
-  if (!vectorStoreInitialized) {
-    await initVectorStore();
-    await seedKnowledgeBase();
-    vectorStoreInitialized = true;
-  }
-}
-
-// Seed knowledge base with initial data
-async function seedKnowledgeBase() {
-  try {
-    const stats = await getStats();
-    if (stats.total === 0) {
-      console.log('📚 Seeding knowledge base...');
-      const documents = knowledgeBase.map(doc => ({
-        id: doc.id,
-        content: doc.content,
-        metadata: doc.metadata,
-      }));
-      await bulkAddDocuments(documents);
-      console.log('✅ Knowledge base seeded successfully');
-    }
-  } catch (error) {
-    console.error('❌ Failed to seed knowledge base:', error);
-  }
-}
-
-// Chat endpoint
+// @route   POST /api/ai/chat
+// @desc    Send message to AI chatbot
+// @access  Private
 router.post('/chat', protect, async (req, res) => {
   try {
-    await ensureVectorStore();
-    
     const { message, userId } = req.body;
-    
+    const authenticatedUserId = req.user._id; // Use authenticated user ID
+
     if (!message) {
-      return res.status(400).json({ message: 'Message is required' });
-    }
-
-    // Get user context (order history, etc.)
-    const context = {
-      userId: userId || req.user._id,
-      userEmail: req.user.email,
-    };
-
-    // Check if should escalate to human
-    if (shouldEscalateToHuman(message)) {
-      return res.json({
-        response: 'I understand you\'d like to speak with a human agent. Let me connect you with our support team. Please hold on while I transfer you to a human agent who can better assist you.',
-        escalateToHuman: true,
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a message',
       });
     }
 
-    // Get AI response
-    const response = await chat(userId || req.user._id, message, context);
+    // Get AI response with real database data
+    const response = await chat(authenticatedUserId, message, {
+      userId: authenticatedUserId,
+    });
 
-    res.json({ response });
+    // Get suggestions for next message
+    const suggestions = getSuggestedReplies(authenticatedUserId);
+
+    // Check if should escalate to human
+    const escalate = shouldEscalateToHuman(message);
+
+    res.status(200).json({
+      success: true,
+      response,
+      suggestions,
+      escalate,
+    });
   } catch (error) {
-    console.error('Chat error:', error);
-    res.status(500).json({ message: 'Failed to process chat message' });
+    console.error('Chat API error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get AI response. Please try again.',
+    });
   }
 });
 
-// Get chat history
+// @route   GET /api/ai/chat/history/:userId
+// @desc    Get chat history for a user
+// @access  Private
 router.get('/chat/history/:userId', protect, async (req, res) => {
   try {
     const { userId } = req.params;
+    const authenticatedUserId = req.user._id;
+
+    // Ensure user can only access their own history
+    if (userId !== 'guest' && userId !== authenticatedUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access',
+      });
+    }
+
     const history = getChatHistory(userId);
-    res.json(history);
+
+    res.status(200).json({
+      success: true,
+      history,
+    });
   } catch (error) {
-    console.error('Failed to get chat history:', error);
-    res.status(500).json({ message: 'Failed to get chat history' });
+    console.error('Chat history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load chat history',
+    });
   }
 });
 
-// Clear chat history
+// @route   POST /api/ai/chat/clear
+// @desc    Clear chat history for a user
+// @access  Private
 router.post('/chat/clear', protect, async (req, res) => {
   try {
     const { userId } = req.body;
-    clearChatHistory(userId || req.user._id);
-    res.json({ message: 'Chat history cleared' });
+    const authenticatedUserId = req.user._id;
+
+    // Ensure user can only clear their own history
+    if (userId !== 'guest' && userId !== authenticatedUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access',
+      });
+    }
+
+    clearChatHistory(userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Chat history cleared',
+    });
   } catch (error) {
-    console.error('Failed to clear chat:', error);
-    res.status(500).json({ message: 'Failed to clear chat' });
+    console.error('Clear chat error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to clear chat history',
+    });
   }
 });
 
-// Get suggested replies
+// @route   GET /api/ai/chat/suggestions/:userId
+// @desc    Get suggested quick replies
+// @access  Private
 router.get('/chat/suggestions/:userId', protect, async (req, res) => {
   try {
     const { userId } = req.params;
-    const suggestions = getSuggestedReplies(userId || req.user._id);
-    res.json({ suggestions });
+    const authenticatedUserId = req.user._id;
+
+    // Ensure user can only access their own suggestions
+    if (userId !== 'guest' && userId !== authenticatedUserId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access',
+      });
+    }
+
+    const suggestions = getSuggestedReplies(userId);
+
+    res.status(200).json({
+      success: true,
+      suggestions,
+    });
   } catch (error) {
-    console.error('Failed to get suggestions:', error);
-    res.status(500).json({ message: 'Failed to get suggestions' });
+    console.error('Suggestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load suggestions',
+    });
   }
 });
 
-// Initialize vector store (admin only)
+// @route   POST /api/ai/admin/init-vector-store
+// @desc    Initialize vector store with knowledge base (Admin only)
+// @access  Private/Admin
 router.post('/admin/init-vector-store', protect, async (req, res) => {
   try {
+    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required',
+      });
     }
 
-    await ensureVectorStore();
-    const stats = await getStats();
+    const { vectorStore } = require('../services/ai/vectorStore');
+    const { knowledgeBase } = require('../services/ai/knowledgeBase');
+
+    // Initialize vector store
+    const initialized = await vectorStore.init();
     
-    res.json({ 
+    if (!initialized) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to initialize vector store',
+      });
+    }
+
+    // Clear existing data
+    await vectorStore.clearAll();
+
+    // Add all knowledge base documents
+    const documents = knowledgeBase.map(doc => ({
+      id: doc.id,
+      content: doc.content,
+      metadata: doc.metadata,
+    }));
+
+    await vectorStore.bulkAddDocuments(documents);
+
+    const stats = await vectorStore.getStats();
+
+    res.status(200).json({
+      success: true,
       message: 'Vector store initialized successfully',
-      stats 
+      stats,
     });
   } catch (error) {
-    console.error('Failed to initialize vector store:', error);
-    res.status(500).json({ message: 'Failed to initialize vector store' });
+    console.error('Vector store init error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to initialize vector store',
+    });
   }
 });
 
-// Get vector store stats (admin only)
+// @route   GET /api/ai/admin/vector-store/stats
+// @desc    Get vector store statistics (Admin only)
+// @access  Private/Admin
 router.get('/admin/vector-store/stats', protect, async (req, res) => {
   try {
+    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required',
+      });
     }
 
-    const stats = await getStats();
-    res.json(stats);
+    const { vectorStore } = require('../services/ai/vectorStore');
+    const stats = await vectorStore.getStats();
+
+    res.status(200).json({
+      success: true,
+      stats,
+    });
   } catch (error) {
-    console.error('Failed to get vector store stats:', error);
-    res.status(500).json({ message: 'Failed to get stats' });
+    console.error('Vector store stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get vector store stats',
+    });
   }
 });
 
-// Re-seed knowledge base (admin only)
+// @route   POST /api/ai/admin/knowledge-base/seed
+// @desc    Re-seed knowledge base (Admin only)
+// @access  Private/Admin
 router.post('/admin/knowledge-base/seed', protect, async (req, res) => {
   try {
+    // Check if user is admin
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required',
+      });
     }
 
-    await ensureVectorStore();
-    await seedKnowledgeBase();
-    const stats = await getStats();
-    
-    res.json({ 
-      message: 'Knowledge base seeded successfully',
-      stats 
+    const { vectorStore } = require('../services/ai/vectorStore');
+    const { knowledgeBase } = require('../services/ai/knowledgeBase');
+
+    // Clear existing data
+    await vectorStore.clearAll();
+
+    // Re-add all documents
+    const documents = knowledgeBase.map(doc => ({
+      id: doc.id,
+      content: doc.content,
+      metadata: doc.metadata,
+    }));
+
+    await vectorStore.bulkAddDocuments(documents);
+
+    const stats = await vectorStore.getStats();
+
+    res.status(200).json({
+      success: true,
+      message: 'Knowledge base re-seeded successfully',
+      stats,
     });
   } catch (error) {
-    console.error('Failed to seed knowledge base:', error);
-    res.status(500).json({ message: 'Failed to seed knowledge base' });
+    console.error('Knowledge base seed error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to re-seed knowledge base',
+    });
   }
 });
 
