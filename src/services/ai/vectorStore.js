@@ -1,7 +1,7 @@
 // Vector Store Service - Handles RAG (Retrieval-Augmented Generation)
 // Uses MongoDB Atlas Vector Search for intelligent information retrieval
 
-import { MongoClient } from 'mongodb';
+const { MongoClient } = require('mongodb');
 
 // MongoDB connection for vector search
 let client = null;
@@ -10,7 +10,7 @@ let db = null;
 /**
  * Initialize MongoDB connection for vector store
  */
-export async function initVectorStore() {
+async function initVectorStore() {
   try {
     const uri = process.env.MONGODB_URI;
     
@@ -78,7 +78,7 @@ function hashString(str) {
  * @param {string} content - Document content
  * @param {object} metadata - Additional metadata
  */
-export async function addDocument(id, content, metadata = {}) {
+async function addDocument(id, content, metadata = {}) {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -109,7 +109,7 @@ export async function addDocument(id, content, metadata = {}) {
  * @param {number} topK - Number of results to return
  * @returns {Array} Array of similar documents
  */
-export async function search(query, topK = 3) {
+async function search(query, topK = 3) {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -154,7 +154,7 @@ export async function search(query, topK = 3) {
  * Bulk add documents to vector store
  * @param {Array} documents - Array of {id, content, metadata}
  */
-export async function bulkAddDocuments(documents) {
+async function bulkAddDocuments(documents) {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -181,7 +181,7 @@ export async function bulkAddDocuments(documents) {
  * Delete document from vector store
  * @param {string} id - Document ID
  */
-export async function deleteDocument(id) {
+async function deleteDocument(id) {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -199,7 +199,7 @@ export async function deleteDocument(id) {
 /**
  * Clear all documents from vector store
  */
-export async function clearAll() {
+async function clearAll() {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -217,7 +217,7 @@ export async function clearAll() {
 /**
  * Get vector store statistics
  */
-export async function getStats() {
+async function getStats() {
   try {
     if (!db) {
       return { total: 0 };
@@ -235,7 +235,7 @@ export async function getStats() {
  * Create vector search index (run once during setup)
  * This creates the index needed for vector search
  */
-export async function createVectorIndex() {
+async function createVectorIndex() {
   try {
     if (!db) {
       console.warn('Vector store not initialized');
@@ -260,7 +260,7 @@ export async function createVectorIndex() {
 }
 
 // Export vector store instance
-export const vectorStore = {
+const vectorStore = {
   init: initVectorStore,
   addDocument,
   bulkAddDocuments,
@@ -271,4 +271,16 @@ export const vectorStore = {
   createVectorIndex,
 };
 
-export default vectorStore;
+module.exports = {
+  initVectorStore,
+  addDocument,
+  bulkAddDocuments,
+  search,
+  deleteDocument,
+  clearAll,
+  getStats,
+  createVectorIndex,
+  vectorStore,
+};
+
+module.exports = vectorStore;

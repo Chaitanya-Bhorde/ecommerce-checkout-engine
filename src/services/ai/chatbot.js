@@ -1,8 +1,8 @@
 // AI Chatbot Service - Handles customer support conversations
 // Uses Llama 3 (FREE) via Ollama for intelligent responses
 
-import { llm, getLLM } from './llmConfig';
-import { vectorStore } from './vectorStore';
+const { llm, getLLM } = require('./llmConfig');
+const { vectorStore } = require('./vectorStore');
 
 // Chat history management
 const chatHistory = new Map(); // Store conversation history per user
@@ -14,7 +14,7 @@ const chatHistory = new Map(); // Store conversation history per user
  * @param {object} context - Additional context (order info, user info, etc.)
  * @returns {Promise<string>} AI response
  */
-export async function chat(userId, message, context = {}) {
+async function chat(userId, message, context = {}) {
   try {
     // Get or create chat history for user
     if (!chatHistory.has(userId)) {
@@ -77,7 +77,7 @@ Guidelines:
  * Clear chat history for a user
  * @param {string} userId - User ID
  */
-export function clearChatHistory(userId) {
+function clearChatHistory(userId) {
   chatHistory.delete(userId);
 }
 
@@ -86,7 +86,7 @@ export function clearChatHistory(userId) {
  * @param {string} userId - User ID
  * @returns {Array} Chat history
  */
-export function getChatHistory(userId) {
+function getChatHistory(userId) {
   return chatHistory.get(userId) || [];
 }
 
@@ -95,7 +95,7 @@ export function getChatHistory(userId) {
  * @param {string} message - User message
  * @returns {boolean} True if should escalate
  */
-export function shouldEscalateToHuman(message) {
+function shouldEscalateToHuman(message) {
   const escalationKeywords = [
     'speak to human',
     'talk to agent',
@@ -116,7 +116,7 @@ export function shouldEscalateToHuman(message) {
  * @param {string} userId - User ID
  * @returns {Array} Array of suggested replies
  */
-export function getSuggestedReplies(userId) {
+function getSuggestedReplies(userId) {
   const history = chatHistory.get(userId) || [];
   const lastMessage = history[history.length - 1]?.content?.toLowerCase() || '';
 
@@ -153,7 +153,7 @@ export function getSuggestedReplies(userId) {
   ];
 }
 
-export default {
+module.exports = {
   chat,
   clearChatHistory,
   getChatHistory,

@@ -1,7 +1,7 @@
 // Knowledge Base - Contains all information for AI chatbot
 // This data is used for RAG (Retrieval-Augmented Generation)
 
-export const knowledgeBase = [
+const knowledgeBase = [
   // Order & Shipping FAQs
   {
     id: 'order-1',
@@ -131,7 +131,7 @@ export const knowledgeBase = [
  * Get all knowledge base documents
  * @returns {Array} All documents
  */
-export function getAllDocuments() {
+function getAllDocuments() {
   return knowledgeBase;
 }
 
@@ -140,7 +140,7 @@ export function getAllDocuments() {
  * @param {string} category - Category name
  * @returns {Array} Filtered documents
  */
-export function getDocumentsByCategory(category) {
+function getDocumentsByCategory(category) {
   return knowledgeBase.filter(doc => doc.metadata.category === category);
 }
 
@@ -149,7 +149,7 @@ export function getDocumentsByCategory(category) {
  * @param {string} query - Search query
  * @returns {Array} Matching documents
  */
-export function getDocumentsByKeywords(query) {
+function getDocumentsByKeywords(query) {
   const lowerQuery = query.toLowerCase();
   const keywords = lowerQuery.split(/\s+/);
   
@@ -161,7 +161,7 @@ export function getDocumentsByKeywords(query) {
   });
 }
 
-export default {
+module.exports = {
   knowledgeBase,
   getAllDocuments,
   getDocumentsByCategory,

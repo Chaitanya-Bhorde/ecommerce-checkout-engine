@@ -1,31 +1,18 @@
 // AI Configuration - Using FREE Ollama with Llama 3
 // This configures the LLM (Large Language Model) for the chatbot
 
-import { ChatOllama } from "@langchain/ollama";
+const { ChatOllama } = require("@langchain/ollama");
 
 // Initialize Ollama with Llama 3 (FREE, runs locally)
-export const llm = new ChatOllama({
+const llm = new ChatOllama({
   baseUrl: "http://localhost:11434", // Ollama default URL
   model: "llama3", // Meta's Llama 3 model (FREE)
   temperature: 0.7, // Controls randomness (0 = deterministic, 1 = creative)
   maxTokens: 500, // Maximum response length
 });
 
-// Alternative: Use Google Gemini (FREE API)
-// Uncomment below to use Gemini instead of Ollama
-/*
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-
-export const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-pro",
-  apiKey: process.env.GOOGLE_API_KEY, // Get free key from https://ai.google.dev
-  temperature: 0.7,
-  maxOutputTokens: 500,
-});
-*/
-
 // LLM Configuration for different use cases
-export const llmConfigs = {
+const llmConfigs = {
   // Customer support - friendly and helpful
   support: {
     temperature: 0.7,
@@ -70,7 +57,7 @@ export const llmConfigs = {
 };
 
 // Function to get LLM with specific config
-export function getLLM(configType = "support") {
+function getLLM(configType = "support") {
   const config = llmConfigs[configType] || llmConfigs.support;
   
   return new ChatOllama({
@@ -81,4 +68,8 @@ export function getLLM(configType = "support") {
   });
 }
 
-export default llm;
+module.exports = {
+  llm,
+  getLLM,
+  llmConfigs,
+};
