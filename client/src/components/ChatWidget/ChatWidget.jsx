@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
+import io from 'socket.io-client';
 import './ChatWidget.css';
 
 export default function ChatWidget() {
@@ -8,86 +8,106 @@ export default function ChatWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [socket, setSocket] = useState(null);
   const messagesEndRef = useRef(null);
   const userId = localStorage.getItem('userId') || 'guest';
+  const token = localStorage.getItem('token');
 
-  // Load chat history on mount
+  // Initialize Socket.io connection
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && token) {
+      const newSocket = io('http://localhost:5000', {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+      });
+
+      newSocket.on('connect', () => {
+        console.log('Socket connected');
+      });
+
+      newSocket.on('receiveMessage', (data) => {
+        setMessages(prev => [...prev, data]);
+        setLoading(false);
+        setIsTyping(false);
+      });
+
+      newSocket.on('typing', (data) => {
+        setIsTyping(data.isTyping);
+      });
+
+      newSocket.on('suggestions', (data) => {
+        setSuggestions(data.suggestions || []);
+      });
+
+      newSocket.on('error', (data) => {
+        console.error('Socket error:', data);
+        setLoading(false);
+        setIsTyping(false);
+      });
+
+      setSocket(newSocket);
+
+      // Load chat history on mount
       loadChatHistory();
-      loadSuggestions();
+
+      return () => {
+        newSocket.close();
+      };
     }
-  }, [isOpen]);
+  }, [isOpen, token]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isTyping]);
 
   const loadChatHistory = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`/api/ai/chat/history/${userId}`, {
+      const res = await fetch(`/api/ai/chat/history/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setMessages(res.data.history || []);
+      const data = await res.json();
+      if (data.success) {
+        setMessages(data.history || []);
+      }
     } catch (error) {
       console.error('Error loading chat history:', error);
     }
   };
 
-  const loadSuggestions = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`/api/ai/chat/suggestions/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setSuggestions(res.data.suggestions || []);
-    } catch (error) {
-      console.error('Error loading suggestions:', error);
-    }
-  };
-
   const sendMessage = async (text = input) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || !socket) return;
 
-    const userMessage = { role: 'user', content: text };
+    const userMessage = { 
+      role: 'user', 
+      content: text,
+      timestamp: new Date(),
+    };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
+    setIsTyping(true);
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        '/api/ai/chat',
-        { message: text, userId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const aiMessage = { role: 'assistant', content: res.data.response };
-      setMessages(prev => [...prev, aiMessage]);
-      
-      // Update suggestions based on AI response
-      setSuggestions(res.data.suggestions || []);
+      socket.emit('sendMessage', { message: text });
     } catch (error) {
       console.error('Chat error:', error);
-      const errorMessage = { 
-        role: 'assistant', 
-        content: "I'm sorry, I'm having trouble right now. Please try again or contact support." 
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
       setLoading(false);
+      setIsTyping(false);
     }
   };
 
   const clearChat = async () => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.post('/api/ai/chat/clear', 
-        { userId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await fetch('/api/ai/chat/clear', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId }),
+      });
       setMessages([]);
       setSuggestions([
         'Track my order',
@@ -105,6 +125,12 @@ export default function ChatWidget() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  const formatTime = (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -173,13 +199,14 @@ export default function ChatWidget() {
                   {msg.role === 'assistant' && <span className="message-avatar">🤖</span>}
                   <div className="message-text">
                     {msg.content}
+                    <span className="message-time">{formatTime(msg.timestamp)}</span>
                   </div>
                   {msg.role === 'user' && <span className="message-avatar">👤</span>}
                 </div>
               </div>
             ))}
 
-            {loading && (
+            {isTyping && (
               <div className="chat-message ai-message">
                 <div className="message-content">
                   <span className="message-avatar">🤖</span>
