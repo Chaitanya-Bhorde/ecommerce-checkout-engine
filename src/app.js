@@ -9,6 +9,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const { handleRazorpayWebhook } = require('./controllers/webhookController');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -37,6 +38,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/ai/analytics', analyticsRoutes);
 
 // Global error handler (must be last)
 app.use(errorHandler);

@@ -4,6 +4,7 @@
 
 const { llm, getLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
+const { runAgent } = require('./agentWorkflow');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 
@@ -145,17 +146,15 @@ CRITICAL INSTRUCTIONS:
       { role: 'user', content: message },
     ];
 
-    // Get LLM response with optimized settings for speed
-    const fastLLM = new (require('@langchain/ollama').ChatOllama)({
-      baseUrl: "http://localhost:11434",
-      model: "llama3",
-      temperature: 0.7,
-      maxTokens: 200, // Reduced for faster responses
-      numPredict: 200, // Limit token generation
-    });
-
-    const response = await fastLLM.invoke(messages);
-    const aiResponse = response.content;
+  // Use Agentic AI for better responses with real actions
+  const agentResult = await runAgent(userId, message);
+  
+  let aiResponse = agentResult.response;
+  
+  // If agent performed an action, log it
+  if (agentResult.actionResult && agentResult.actionResult.success) {
+    console.log(`Agent action performed: ${agentResult.action}`, agentResult.actionResult);
+  }
 
     // Update chat history
     history.push(

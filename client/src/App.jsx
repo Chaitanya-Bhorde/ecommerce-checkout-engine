@@ -15,6 +15,7 @@ import AdminProducts from './pages/AdminProducts';
 import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminLedger from './pages/AdminLedger';
+import AdminAIAnalytics from './pages/AdminAIAnalytics';
 import ChatWidget from './components/ChatWidget/ChatWidget';
 
 export default function App() {
@@ -81,6 +82,11 @@ export default function App() {
         <Route path="/admin/ledger" element={
           <AdminRoute>
             <AdminLedger />
+          </AdminRoute>
+        } />
+        <Route path="/admin/ai-analytics" element={
+          <AdminRoute>
+            <AdminAIAnalytics />
           </AdminRoute>
         } />
       </Routes>
