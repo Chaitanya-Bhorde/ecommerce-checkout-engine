@@ -5,6 +5,7 @@
 const { llm, getLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
+const { analyzeAndGetStrategy } = require('./sentimentAnalysis');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 
@@ -146,15 +147,31 @@ CRITICAL INSTRUCTIONS:
       { role: 'user', content: message },
     ];
 
+  // Analyze sentiment for better responses
+  const sentimentAnalysis = await analyzeAndGetStrategy(message);
+  
   // Use Agentic AI for better responses with real actions
   const agentResult = await runAgent(userId, message);
   
   let aiResponse = agentResult.response;
   
+  // Adjust response based on sentiment
+  if (sentimentAnalysis.strategy.tone === 'empathetic') {
+    aiResponse = "I understand your frustration, and I'm here to help resolve this immediately. " + aiResponse;
+  } else if (sentimentAnalysis.strategy.tone === 'patient') {
+    aiResponse = "Let me help you with this step by step. " + aiResponse;
+  } else if (sentimentAnalysis.sentiment === 'happy') {
+    aiResponse = "Glad to help! 😊 " + aiResponse;
+  }
+  
   // If agent performed an action, log it
   if (agentResult.actionResult && agentResult.actionResult.success) {
     console.log(`Agent action performed: ${agentResult.action}`, agentResult.actionResult);
   }
+  
+  // Log for analytics
+  const startTime = Date.now();
+  const responseTime = Date.now() - startTime;
 
     // Update chat history
     history.push(

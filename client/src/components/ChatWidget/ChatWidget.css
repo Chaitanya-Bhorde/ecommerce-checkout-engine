@@ -107,6 +107,7 @@
   gap: 8px;
 }
 
+.chat-sound-btn,
 .chat-clear-btn,
 .chat-close-btn {
   background: rgba(255, 255, 255, 0.2);
@@ -267,6 +268,21 @@
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border-bottom-right-radius: 4px;
+  position: relative;
+}
+
+/* Read Receipts */
+.read-receipt {
+  display: block;
+  font-size: 10px;
+  margin-top: 2px;
+  opacity: 0.8;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.read-receipt.read {
+  color: #4ade80;
 }
 
 .ai-message .message-text {

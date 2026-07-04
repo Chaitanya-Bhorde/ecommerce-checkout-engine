@@ -10,6 +10,8 @@ export default function ChatWidget() {
   const [suggestions, setSuggestions] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [socket, setSocket] = useState(null);
+  const [readReceipts, setReadReceipts] = useState({});
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const messagesEndRef = useRef(null);
   const userId = localStorage.getItem('userId') || 'guest';
   const token = localStorage.getItem('token');
@@ -30,6 +32,11 @@ export default function ChatWidget() {
         setMessages(prev => [...prev, data]);
         setLoading(false);
         setIsTyping(false);
+        
+        // Play notification sound
+        if (soundEnabled) {
+          playNotificationSound();
+        }
       });
 
       newSocket.on('typing', (data) => {
@@ -38,6 +45,10 @@ export default function ChatWidget() {
 
       newSocket.on('suggestions', (data) => {
         setSuggestions(data.suggestions || []);
+      });
+
+      newSocket.on('messageRead', (data) => {
+        setReadReceipts(prev => ({ ...prev, [data.messageId]: true }));
       });
 
       newSocket.on('error', (data) => {
@@ -79,10 +90,13 @@ export default function ChatWidget() {
   const sendMessage = async (text = input) => {
     if (!text.trim() || loading || !socket) return;
 
+    const messageId = Date.now();
     const userMessage = { 
+      id: messageId,
       role: 'user', 
       content: text,
       timestamp: new Date(),
+      status: 'sent',
     };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -90,7 +104,12 @@ export default function ChatWidget() {
     setIsTyping(true);
 
     try {
-      socket.emit('sendMessage', { message: text });
+      socket.emit('sendMessage', { message: text, messageId });
+      
+      // Simulate read receipt after 1 second
+      setTimeout(() => {
+        setReadReceipts(prev => ({ ...prev, [messageId]: true }));
+      }, 1000);
     } catch (error) {
       console.error('Chat error:', error);
       setLoading(false);
@@ -133,6 +152,32 @@ export default function ChatWidget() {
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Play notification sound
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (error) {
+      console.error('Error playing sound:', error);
+    }
+  };
+
+  const toggleSound = () => {
+    setSoundEnabled(!soundEnabled);
+  };
+
   return (
     <div className="chat-widget-container">
       {/* Chat Toggle Button */}
@@ -158,22 +203,29 @@ export default function ChatWidget() {
                 <span className="chat-status">Online</span>
               </div>
             </div>
-            <div className="chat-header-actions">
-              <button 
-                onClick={clearChat}
-                className="chat-clear-btn"
-                title="Clear chat"
-              >
-                🗑️
-              </button>
-              <button 
-                onClick={() => setIsOpen(false)}
-                className="chat-close-btn"
-                title="Close chat"
-              >
-                ✕
-              </button>
-            </div>
+          <div className="chat-header-actions">
+            <button 
+              onClick={toggleSound}
+              className="chat-sound-btn"
+              title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
+            >
+              {soundEnabled ? '🔊' : '🔇'}
+            </button>
+            <button 
+              onClick={clearChat}
+              className="chat-clear-btn"
+              title="Clear chat"
+            >
+              🗑️
+            </button>
+            <button 
+              onClick={() => setIsOpen(false)}
+              className="chat-close-btn"
+              title="Close chat"
+            >
+              ✕
+            </button>
+          </div>
           </div>
 
           {/* Messages Area */}
@@ -200,6 +252,11 @@ export default function ChatWidget() {
                   <div className="message-text">
                     {msg.content}
                     <span className="message-time">{formatTime(msg.timestamp)}</span>
+                    {msg.role === 'user' && (
+                      <span className="read-receipt">
+                        {readReceipts[msg.id] ? '✓✓' : '✓'}
+                      </span>
+                    )}
                   </div>
                   {msg.role === 'user' && <span className="message-avatar">👤</span>}
                 </div>
