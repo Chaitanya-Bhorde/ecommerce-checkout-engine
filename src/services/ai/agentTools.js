@@ -210,21 +210,24 @@ async function getOrderDetails(orderId, userId) {
  */
 async function searchProducts(query, limit = 5) {
   try {
+    // Use simple text matching instead of regex to avoid Mongoose errors
     const products = await Product.find({
       isActive: true,
       stock: { $gt: 0 },
-      $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { category: { $regex: query, $options: 'i' } },
-      ],
     })
       .populate('category', 'name')
       .limit(limit)
       .select('name price images category stock description');
 
+    // Filter products manually based on query
+    const filteredProducts = products.filter(product => {
+      const searchText = `${product.name} ${product.category?.name || ''}`.toLowerCase();
+      return searchText.includes(query.toLowerCase());
+    });
+
     return {
       success: true,
-      products: products.map(product => ({
+      products: filteredProducts.slice(0, limit).map(product => ({
         id: product._id,
         name: product.name,
         price: product.price,

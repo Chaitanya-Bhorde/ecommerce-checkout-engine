@@ -45,23 +45,34 @@ async function getUserOrders(userId) {
  */
 async function getProductRecommendations(query = '') {
   try {
-    const filter = { isActive: true, stock: { $gt: 0 } };
-    
-    // If query provided, search by name or category
-    if (query) {
-      filter.$or = [
-        { name: { $regex: query, $options: 'i' } },
-        { category: { $regex: query, $options: 'i' } },
-      ];
-    }
-    
-    const products = await Product.find(filter)
+    // Get all active products first
+    const products = await Product.find({
+      isActive: true,
+      stock: { $gt: 0 },
+    })
       .populate('category', 'name')
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(50) // Get more to filter from
       .select('name price images category stock description');
     
-    return products.map(product => ({
+    // If query provided, filter manually
+    if (query) {
+      const filtered = products.filter(product => {
+        const searchText = `${product.name} ${product.category?.name || ''}`.toLowerCase();
+        return searchText.includes(query.toLowerCase());
+      });
+      return filtered.slice(0, 5).map(product => ({
+        id: product._id,
+        name: product.name,
+        price: product.price,
+        category: product.category?.name || 'General',
+        stock: product.stock,
+        image: product.images?.[0] || null,
+      }));
+    }
+    
+    // Return first 5 if no query
+    return products.slice(0, 5).map(product => ({
       id: product._id,
       name: product.name,
       price: product.price,
