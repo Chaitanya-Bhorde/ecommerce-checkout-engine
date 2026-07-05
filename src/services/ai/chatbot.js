@@ -6,8 +6,8 @@ const { llm, getLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
 const { analyzeAndGetStrategy } = require('./sentimentAnalysis');
-const Order = require('../models/Order');
-const Product = require('../models/Product');
+const Order = require('../../models/Order');
+const Product = require('../../models/Product');
 
 // Chat history management
 const chatHistory = new Map(); // Store conversation history per user

@@ -339,7 +339,7 @@ async function executeConfirmedAction(state) {
 /**
  * Router - Decides which node to go to next
  */
-function router(state) {
+async function router(state) {
   if (state.needsConfirmation) {
     const lastMessage = state.messages[state.messages.length - 1].content.toLowerCase();
     

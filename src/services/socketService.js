@@ -15,7 +15,7 @@ function initializeSocket(server) {
     cors: {
       origin: process.env.NODE_ENV === 'production' 
         ? "https://yourdomain.com" 
-        : "http://localhost:5174",
+        : "http://localhost:5173",
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -50,16 +50,21 @@ function initializeSocket(server) {
     // Handle incoming messages
     socket.on('sendMessage', async (data) => {
       try {
-        const { message } = data;
+        const { message, messageId } = data;
         const userId = socket.user._id;
+
+        console.log(`[Socket] Received message from user ${userId}:`, message);
 
         // Emit typing indicator to user
         socket.emit('typing', { isTyping: true });
 
         // Get AI response
+        console.log(`[Socket] Getting AI response...`);
         const response = await chat(userId, message, {
           userId,
         });
+
+        console.log(`[Socket] AI response received:`, response);
 
         // Send response back to user
         socket.emit('receiveMessage', {
@@ -75,9 +80,11 @@ function initializeSocket(server) {
         const { getSuggestedReplies } = require('./ai/chatbot');
         const suggestions = getSuggestedReplies(userId);
         socket.emit('suggestions', { suggestions });
+
+        console.log(`[Socket] Response sent to user ${userId}`);
       } catch (error) {
-        console.error('Socket message error:', error);
-        socket.emit('error', { message: 'Failed to send message' });
+        console.error('[Socket] Message error:', error);
+        socket.emit('error', { message: 'Failed to send message', error: error.message });
       }
     });
 

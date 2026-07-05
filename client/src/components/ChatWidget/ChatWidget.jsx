@@ -19,16 +19,25 @@ export default function ChatWidget() {
   // Initialize Socket.io connection
   useEffect(() => {
     if (isOpen && token) {
+      console.log('Connecting to socket with token:', token ? 'Token exists' : 'No token');
+      
       const newSocket = io('http://localhost:5000', {
         auth: { token },
         transports: ['websocket', 'polling'],
       });
 
       newSocket.on('connect', () => {
-        console.log('Socket connected');
+        console.log('Socket connected:', newSocket.id);
+      });
+
+      newSocket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+        setLoading(false);
+        setIsTyping(false);
       });
 
       newSocket.on('receiveMessage', (data) => {
+        console.log('Received message:', data);
         setMessages(prev => [...prev, data]);
         setLoading(false);
         setIsTyping(false);
@@ -40,10 +49,12 @@ export default function ChatWidget() {
       });
 
       newSocket.on('typing', (data) => {
+        console.log('Typing indicator:', data);
         setIsTyping(data.isTyping);
       });
 
       newSocket.on('suggestions', (data) => {
+        console.log('Suggestions:', data);
         setSuggestions(data.suggestions || []);
       });
 
@@ -65,6 +76,8 @@ export default function ChatWidget() {
       return () => {
         newSocket.close();
       };
+    } else {
+      console.log('Socket not initialized - isOpen:', isOpen, 'token:', token ? 'exists' : 'missing');
     }
   }, [isOpen, token]);
 
@@ -88,7 +101,10 @@ export default function ChatWidget() {
   };
 
   const sendMessage = async (text = input) => {
-    if (!text.trim() || loading || !socket) return;
+    if (!text.trim() || loading) {
+      console.log('Cannot send message - empty:', !text.trim(), 'loading:', loading);
+      return;
+    }
 
     const messageId = Date.now();
     const userMessage = { 
@@ -104,7 +120,39 @@ export default function ChatWidget() {
     setIsTyping(true);
 
     try {
-      socket.emit('sendMessage', { message: text, messageId });
+      // If socket is connected, use it
+      if (socket) {
+        console.log('Sending via socket:', text);
+        socket.emit('sendMessage', { message: text, messageId });
+      } else {
+        // Fallback to HTTP API
+        console.log('Socket not connected, using HTTP API:', text);
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ message: text }),
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          const aiMessage = {
+            role: 'assistant',
+            content: data.response,
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, aiMessage]);
+        } else {
+          console.error('API error:', data);
+        }
+        
+        setLoading(false);
+        setIsTyping(false);
+      }
       
       // Simulate read receipt after 1 second
       setTimeout(() => {

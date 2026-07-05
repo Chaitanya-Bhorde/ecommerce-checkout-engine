@@ -1,7 +1,7 @@
 // AI Analytics Service - Tracks chatbot performance
 // Production-level analytics for monitoring AI effectiveness
 
-const ChatLog = require('../models/ChatLog');
+const ChatLog = require('../../models/ChatLog');
 
 /**
  * Log chat interaction for analytics

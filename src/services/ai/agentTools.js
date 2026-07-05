@@ -1,9 +1,9 @@
 // Agentic AI Tools - Allows AI to perform real actions
 // This is what makes the AI "agentic" - it can DO things, not just chat
 
-const Order = require('../models/Order');
-const Product = require('../models/Product');
-const User = require('../models/User');
+const Order = require('../../models/Order');
+const Product = require('../../models/Product');
+const User = require('../../models/User');
 
 /**
  * Tool: Cancel an order
