@@ -16,6 +16,7 @@ import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminLedger from './pages/AdminLedger';
 import AdminAIAnalytics from './pages/AdminAIAnalytics';
+import Chat from './pages/Chat';
 import ChatWidget from './components/ChatWidget/ChatWidget';
 
 export default function App() {
@@ -42,13 +43,14 @@ export default function App() {
             <Orders />
           </ProtectedRoute>
         } />
-        <Route path="/order-confirmation/:orderId" element={
-          <ProtectedRoute>
-            <OrderConfirmation />
-          </ProtectedRoute>
-        } />
-        
-        {/* Admin Routes */}
+          <Route path="/order-confirmation/:orderId" element={
+            <ProtectedRoute>
+              <OrderConfirmation />
+            </ProtectedRoute>
+          } />
+          <Route path="/chat" element={<Chat />} />
+          
+          {/* Admin Routes */}
         <Route path="/admin" element={
           <AdminRoute>
             <AdminDashboard />

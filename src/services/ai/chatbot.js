@@ -87,8 +87,32 @@ async function getProductRecommendations(query = '') {
 }
 
 /**
+ * Get total statistics from database
+ */
+async function getDatabaseStats() {
+  try {
+    const totalOrders = await Order.countDocuments();
+    const totalProducts = await Product.countDocuments({ isActive: true });
+    const totalUsers = await User.countDocuments();
+    
+    return {
+      totalOrders,
+      totalProducts,
+      totalUsers,
+    };
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    return {
+      totalOrders: 0,
+      totalProducts: 0,
+      totalUsers: 0,
+    };
+  }
+}
+
+/**
  * Main chatbot function - processes user messages and returns AI responses
- * NOW WITH REAL DATABASE DATA!
+ * WITH REAL DATABASE STATISTICS
  * @param {string} userId - User ID for conversation tracking
  * @param {string} message - User's message
  * @param {object} context - Additional context (order info, user info, etc.)
@@ -104,27 +128,31 @@ async function chat(userId, message, context = {}) {
     }
     const history = chatHistory.get(userId);
 
-    console.log(`[Chatbot] Fetching user orders...`);
-    // FETCH REAL DATA FROM DATABASE
-    const [userOrders, recommendations] = await Promise.all([
+    console.log(`[Chatbot] Fetching database stats...`);
+    // FETCH REAL STATISTICS
+    const [userOrders, recommendations, stats] = await Promise.all([
       getUserOrders(userId),
       getProductRecommendations(message),
+      getDatabaseStats(),
     ]);
 
-    console.log(`[Chatbot] Orders: ${userOrders.length}, Products: ${recommendations.length}`);
+    console.log(`[Chatbot] Stats - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
 
     // Build real data context
-    let realDataContext = '';
-    
+    let realDataContext = `\n\nDATABASE STATISTICS (ALWAYS USE THESE NUMBERS):\n`;
+    realDataContext += `- Total Orders: ${stats.totalOrders}\n`;
+    realDataContext += `- Total Products: ${stats.totalProducts}\n`;
+    realDataContext += `- Total Users: ${stats.totalUsers}\n\n`;
+
     if (userOrders.length > 0) {
-      realDataContext += `\n\nUser's Recent Orders:\n`;
+      realDataContext += `Your Recent Orders:\n`;
       userOrders.forEach((order, index) => {
         realDataContext += `${index + 1}. Order #${order.id.slice(-8)} - ₹${order.total} - ${order.status} (${order.progress}%)\n`;
       });
     }
 
     if (recommendations.length > 0) {
-      realDataContext += `\n\nAvailable Products:\n`;
+      realDataContext += `\nAvailable Products:\n`;
       recommendations.forEach((product, index) => {
         realDataContext += `${index + 1}. ${product.name} - ₹${product.price} (${product.category})\n`;
       });
@@ -133,16 +161,17 @@ async function chat(userId, message, context = {}) {
     // Simple system prompt
     const systemPrompt = `You are a helpful customer support assistant for an e-commerce store.
 
-${realDataContext ? `Real-Time Data:\n${realDataContext}\n` : ''}
+${realDataContext}
 
 CRITICAL INSTRUCTIONS:
-1. Use the REAL-TIME DATA above to answer questions
-2. If user asks about orders, use their actual order data
-3. If user asks about products, use the actual product data
-4. Be specific with names, prices, and status
-5. Keep responses concise (under 100 words)
-6. Be polite and helpful
-7. If you don't have the information, say so and offer human help`;
+1. ALWAYS use the EXACT numbers from DATABASE STATISTICS above
+2. When asked about total orders, products, or users, use the exact numbers provided
+3. NEVER make up numbers or estimates
+4. If user asks about orders, use their actual order data
+5. If user asks about products, use the actual product data
+6. Be specific with names, prices, and status
+7. Keep responses concise (under 100 words)
+8. Be polite and helpful`;
 
     console.log(`[Chatbot] Getting AI response from Llama 3...`);
     

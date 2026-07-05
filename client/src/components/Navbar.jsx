@@ -56,6 +56,18 @@ export default function Navbar() {
         }}>
           Orders
         </Link>
+        <Link to="/chat" style={{
+          color: '#7c3aed',
+          textDecoration: 'none',
+          fontSize: '0.95rem',
+          fontWeight: '600',
+          padding: '0.35rem 0.75rem',
+          background: '#f5f3ff',
+          borderRadius: '8px',
+          transition: 'all 0.2s',
+        }}>
+          💬 AI Chat
+        </Link>
 
         {user ? (
           <>
