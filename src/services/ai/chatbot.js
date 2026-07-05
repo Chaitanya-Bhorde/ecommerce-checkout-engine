@@ -95,6 +95,8 @@ async function getProductRecommendations(query = '') {
  * @returns {Promise<string>} AI response
  */
 async function chat(userId, message, context = {}) {
+  console.log(`[Chatbot] Processing message for user ${userId}: ${message}`);
+  
   try {
     // Get or create chat history for user
     if (!chatHistory.has(userId)) {
@@ -102,19 +104,14 @@ async function chat(userId, message, context = {}) {
     }
     const history = chatHistory.get(userId);
 
-    // Search vector store for relevant information (RAG)
-    const relevantDocs = await vectorStore.search(message, 3);
-    
-    // Build context from retrieved documents
-    const contextText = relevantDocs
-      .map(doc => doc.pageContent)
-      .join('\n\n');
-
+    console.log(`[Chatbot] Fetching user orders...`);
     // FETCH REAL DATA FROM DATABASE
     const [userOrders, recommendations] = await Promise.all([
       getUserOrders(userId),
       getProductRecommendations(message),
     ]);
+
+    console.log(`[Chatbot] Orders: ${userOrders.length}, Products: ${recommendations.length}`);
 
     // Build real data context
     let realDataContext = '';
@@ -133,14 +130,10 @@ async function chat(userId, message, context = {}) {
       });
     }
 
-    // Prepare the prompt with REAL context
+    // Simple system prompt
     const systemPrompt = `You are a helpful customer support assistant for an e-commerce store.
 
-${contextText ? `Knowledge Base Information:\n${contextText}\n` : ''}
-
 ${realDataContext ? `Real-Time Data:\n${realDataContext}\n` : ''}
-
-${context.orderId ? `Current Order Context:\nOrder #${context.orderId}\nStatus: ${context.orderStatus || 'N/A'}\n` : ''}
 
 CRITICAL INSTRUCTIONS:
 1. Use the REAL-TIME DATA above to answer questions
@@ -151,38 +144,18 @@ CRITICAL INSTRUCTIONS:
 6. Be polite and helpful
 7. If you don't have the information, say so and offer human help`;
 
-    // Build messages array for LangChain
+    console.log(`[Chatbot] Getting AI response from Llama 3...`);
+    
+    // Simple direct LLM call
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-10), // Last 10 messages for context
       { role: 'user', content: message },
     ];
 
-  // Analyze sentiment for better responses
-  const sentimentAnalysis = await analyzeAndGetStrategy(message);
-  
-  // Use Agentic AI for better responses with real actions
-  const agentResult = await runAgent(userId, message);
-  
-  let aiResponse = agentResult.response;
-  
-  // Adjust response based on sentiment
-  if (sentimentAnalysis.strategy.tone === 'empathetic') {
-    aiResponse = "I understand your frustration, and I'm here to help resolve this immediately. " + aiResponse;
-  } else if (sentimentAnalysis.strategy.tone === 'patient') {
-    aiResponse = "Let me help you with this step by step. " + aiResponse;
-  } else if (sentimentAnalysis.sentiment === 'happy') {
-    aiResponse = "Glad to help! 😊 " + aiResponse;
-  }
-  
-  // If agent performed an action, log it
-  if (agentResult.actionResult && agentResult.actionResult.success) {
-    console.log(`Agent action performed: ${agentResult.action}`, agentResult.actionResult);
-  }
-  
-  // Log for analytics
-  const startTime = Date.now();
-  const responseTime = Date.now() - startTime;
+    const response = await llm.invoke(messages);
+    let aiResponse = response.content;
+    
+    console.log(`[Chatbot] AI response received: ${aiResponse.substring(0, 50)}...`);
 
     // Update chat history
     history.push(
@@ -195,9 +168,10 @@ CRITICAL INSTRUCTIONS:
       chatHistory.set(userId, history.slice(-20));
     }
 
+    console.log(`[Chatbot] Response sent successfully`);
     return aiResponse;
   } catch (error) {
-    console.error('Chatbot error:', error);
+    console.error('[Chatbot] Error:', error);
     return "I'm sorry, I'm having trouble right now. Let me connect you with a human agent who can help you better.";
   }
 }
