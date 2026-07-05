@@ -59,7 +59,7 @@ async function getProductRecommendations(query = '') {
       .populate('category', 'name')
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name price images category stock');
+      .select('name price images category stock description');
     
     return products.map(product => ({
       id: product._id,

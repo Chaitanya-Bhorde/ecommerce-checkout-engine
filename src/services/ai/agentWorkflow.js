@@ -394,10 +394,12 @@ function createAgentWorkflow() {
   workflow.addNode('searchProducts', handleSearchProducts);
   workflow.addNode('executeAction', executeConfirmedAction);
 
-  // Add edges
-  workflow.addEdge('__start__', 'router');
-  workflow.addConditionalEdges('router', router, {
-    generalChat: 'generalChat',
+  // Set entry point
+  workflow.setEntryPoint('generalChat');
+
+  // Add conditional edges from generalChat
+  workflow.addConditionalEdges('generalChat', router, {
+    generalChat: END,
     cancelOrder: 'cancelOrder',
     returnOrder: 'returnOrder',
     updateAddress: 'updateAddress',
@@ -406,8 +408,7 @@ function createAgentWorkflow() {
     executeAction: 'executeAction',
   });
 
-  // All nodes end
-  workflow.addEdge('generalChat', END);
+  // All action nodes go back to generalChat or END
   workflow.addEdge('cancelOrder', END);
   workflow.addEdge('returnOrder', END);
   workflow.addEdge('updateAddress', END);
