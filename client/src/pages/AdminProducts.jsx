@@ -96,32 +96,18 @@ export default function AdminProducts() {
   };
 
   const handleEdit = (product) => {
-    // Reset form data first to avoid state mixing
-    setEditingProduct(null);
+    console.log('Editing product:', product._id, product.name);
+    setEditingProduct(product);
     setFormData({
-      name: '',
-      description: '',
-      price: '',
-      category: '',
-      stock: '',
-      images: [],
-      isActive: true,
+      name: product.name,
+      description: product.description || '',
+      price: product.price.toString(),
+      category: product.category?._id || '',
+      stock: product.stock.toString(),
+      images: product.images || [],
+      isActive: product.isActive,
     });
-    
-    // Small delay to ensure state is reset, then set new product data
-    setTimeout(() => {
-      setEditingProduct(product);
-      setFormData({
-        name: product.name,
-        description: product.description || '',
-        price: product.price.toString(),
-        category: product.category?._id || '',
-        stock: product.stock.toString(),
-        images: product.images || [],
-        isActive: product.isActive,
-      });
-      setShowModal(true);
-    }, 0);
+    setShowModal(true);
   };
 
   const handleDelete = async (productId) => {
@@ -136,24 +122,14 @@ export default function AdminProducts() {
 
   const handleToggleActive = async (product) => {
     try {
-      await api.put(`/products/${product._id}`, { isActive: !product.isActive });
-      // Close modal if it's open for this product
-      if (editingProduct && editingProduct._id === product._id) {
-        setShowModal(false);
-        setEditingProduct(null);
-        setFormData({
-          name: '',
-          description: '',
-          price: '',
-          category: '',
-          stock: '',
-          images: [],
-          isActive: true,
-        });
-      }
+      console.log('Toggling product:', product._id, 'From:', product.isActive, 'To:', !product.isActive);
+      const response = await api.put(`/products/${product._id}`, { isActive: !product.isActive });
+      console.log('Toggle success:', response.data);
+      alert('Status updated successfully!');
       fetchProducts();
     } catch (err) {
-      alert('Failed to update product status');
+      console.error('Toggle error:', err);
+      alert('Failed: ' + (err.response?.data?.message || err.message));
     }
   };
 

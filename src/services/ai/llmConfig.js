@@ -8,26 +8,17 @@ const llm = new ChatOllama({
   baseUrl: "http://localhost:11434", // Ollama default URL
   model: "llama3", // Meta's Llama 3 model (FREE)
   temperature: 0.7, // Controls randomness (0 = deterministic, 1 = creative)
-  maxTokens: 500, // Maximum response length
+  maxTokens: 200, // Maximum response length (reduced for speed)
+  timeout: 5000, // 5 second timeout
 });
 
 // LLM Configuration for different use cases
 const llmConfigs = {
-  // Customer support - friendly and helpful
+  // Customer support - friendly and helpful (FAST)
   support: {
     temperature: 0.7,
-    maxTokens: 300,
-    systemPrompt: `You are a helpful customer support assistant for an e-commerce store.
-    You help customers with:
-    - Order status and tracking
-    - Product recommendations
-    - Return and refund policies
-    - Shipping information
-    - General inquiries
-    
-    Always be polite, professional, and helpful.
-    If you don't know something, say so and offer to connect them with a human agent.
-    Keep responses concise and under 100 words.`,
+    maxTokens: 150, // Reduced for faster response
+    systemPrompt: `You are a helpful customer support assistant. Be concise and fast. Answer in under 50 words.`,
   },
 
   // Product recommendations - analytical
