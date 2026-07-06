@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import io from 'socket.io-client';
 import './ChatWidget.css';
 
@@ -120,39 +121,39 @@ export default function ChatWidget() {
     setIsTyping(true);
 
     try {
-      // If socket is connected, use it
-      if (socket) {
-        console.log('Sending via socket:', text);
-        socket.emit('sendMessage', { message: text, messageId });
+      // Use HTTP API directly (more reliable)
+      console.log('Sending message to AI:', text);
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message: text }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        const aiMessage = {
+          role: 'assistant',
+          content: data.response,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, aiMessage]);
       } else {
-        // Fallback to HTTP API
-        console.log('Socket not connected, using HTTP API:', text);
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ message: text }),
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-          const aiMessage = {
-            role: 'assistant',
-            content: data.response,
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, aiMessage]);
-        } else {
-          console.error('API error:', data);
-        }
-        
-        setLoading(false);
-        setIsTyping(false);
+        console.error('API error:', data);
+        const errorMessage = {
+          role: 'assistant',
+          content: "I'm sorry, I'm having trouble right now. Please try again or visit the full chat page for better support.",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
       }
+      
+      setLoading(false);
+      setIsTyping(false);
       
       // Simulate read receipt after 1 second
       setTimeout(() => {
@@ -160,6 +161,12 @@ export default function ChatWidget() {
       }, 1000);
     } catch (error) {
       console.error('Chat error:', error);
+      const errorMessage = {
+        role: 'assistant',
+        content: "I'm having connection issues. Please check the full chat page or try again later.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
       setLoading(false);
       setIsTyping(false);
     }
@@ -242,6 +249,22 @@ export default function ChatWidget() {
       {/* Chat Window */}
       {isOpen && (
         <div className="chat-window">
+          {/* Link to full chat page */}
+          <div style={{
+            textAlign: 'center',
+            padding: '6px',
+            background: '#f9fafb',
+            borderBottom: '1px solid #e5e7eb',
+          }}>
+            <Link to="/chat" style={{
+              fontSize: '11px',
+              color: '#667eea',
+              textDecoration: 'none',
+              fontWeight: '500',
+            }}>
+              Open Full Chat Page →
+            </Link>
+          </div>
           {/* Header - Always Visible */}
           <div className="chat-header">
             <div className="chat-header-info">
