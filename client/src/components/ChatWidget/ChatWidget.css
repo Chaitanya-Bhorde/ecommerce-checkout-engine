@@ -4,7 +4,7 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 9999;
+  z-index: 1000;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
@@ -23,6 +23,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
 }
 
 .chat-toggle-btn:hover {
@@ -41,6 +42,7 @@
   flex-direction: column;
   overflow: hidden;
   animation: slideUp 0.3s ease;
+  pointer-events: auto;
 }
 
 @keyframes slideUp {
