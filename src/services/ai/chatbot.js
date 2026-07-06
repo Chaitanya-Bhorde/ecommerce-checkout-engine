@@ -8,6 +8,7 @@ const { runAgent } = require('./agentWorkflow');
 const { analyzeAndGetStrategy } = require('./sentimentAnalysis');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
+const User = require('../../models/User');
 
 // Chat history management
 const chatHistory = new Map(); // Store conversation history per user
@@ -94,11 +95,17 @@ async function getDatabaseStats() {
     const totalOrders = await Order.countDocuments();
     const totalProducts = await Product.countDocuments({ isActive: true });
     const totalUsers = await User.countDocuments();
+    const cancelledOrders = await Order.countDocuments({ status: 'cancelled' });
+    const deliveredOrders = await Order.countDocuments({ status: 'delivered' });
+    const pendingOrders = await Order.countDocuments({ status: { $in: ['pending', 'processing', 'shipped'] } });
     
     return {
       totalOrders,
       totalProducts,
       totalUsers,
+      cancelledOrders,
+      deliveredOrders,
+      pendingOrders,
     };
   } catch (error) {
     console.error('Error fetching stats:', error);
@@ -106,6 +113,9 @@ async function getDatabaseStats() {
       totalOrders: 0,
       totalProducts: 0,
       totalUsers: 0,
+      cancelledOrders: 0,
+      deliveredOrders: 0,
+      pendingOrders: 0,
     };
   }
 }
@@ -139,8 +149,11 @@ async function chat(userId, message, context = {}) {
     console.log(`[Chatbot] Stats - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
 
     // Build real data context
-    let realDataContext = `\n\nDATABASE STATISTICS (ALWAYS USE THESE NUMBERS):\n`;
+    let realDataContext = `\n\nDATABASE STATISTICS (ALWAYS USE THESE EXACT NUMBERS):\n`;
     realDataContext += `- Total Orders: ${stats.totalOrders}\n`;
+    realDataContext += `- Pending/Delivery Orders: ${stats.pendingOrders}\n`;
+    realDataContext += `- Delivered Orders: ${stats.deliveredOrders}\n`;
+    realDataContext += `- Cancelled Orders: ${stats.cancelledOrders}\n`;
     realDataContext += `- Total Products: ${stats.totalProducts}\n`;
     realDataContext += `- Total Users: ${stats.totalUsers}\n\n`;
 
@@ -164,13 +177,17 @@ async function chat(userId, message, context = {}) {
 ${realDataContext}
 
 CRITICAL INSTRUCTIONS:
-1. ALWAYS use the EXACT numbers from DATABASE STATISTICS above
-2. When asked about total orders, products, or users, use the exact numbers provided
+1. ALWAYS use the EXACT numbers from DATABASE STATISTICS above - NEVER say 0 if the number is not 0
+2. When asked about orders, clarify which type:
+   - "Total orders" = ${stats.totalOrders}
+   - "Pending/Delivery orders" = ${stats.pendingOrders}
+   - "Delivered orders" = ${stats.deliveredOrders}
+   - "Cancelled orders" = ${stats.cancelledOrders}
 3. NEVER make up numbers or estimates
-4. If user asks about orders, use their actual order data
-5. If user asks about products, use the actual product data
+4. If user asks about orders, use their actual order data from "Your Recent Orders" section
+5. If user asks about products, use the actual product data from "Available Products" section
 6. Be specific with names, prices, and status
-7. Keep responses concise (under 100 words)
+7. Keep responses concise (under 80 words) - be FAST and SHORT
 8. Be polite and helpful`;
 
     console.log(`[Chatbot] Getting AI response from Llama 3...`);
