@@ -138,15 +138,15 @@ async function chat(userId, message, context = {}) {
     }
     const history = chatHistory.get(userId);
 
-    console.log(`[Chatbot] Fetching database stats...`);
-    // FETCH REAL STATISTICS
+    console.log(`[Chatbot] Fetching FRESH database stats...`);
+    // FETCH REAL STATISTICS - ALWAYS FRESH, NO CACHING
     const [userOrders, recommendations, stats] = await Promise.all([
       getUserOrders(userId),
       getProductRecommendations(message),
-      getDatabaseStats(),
+      getDatabaseStats(), // This always fetches fresh data from DB
     ]);
 
-    console.log(`[Chatbot] Stats - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
+    console.log(`[Chatbot] Stats (FRESH) - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}, Cancelled: ${stats.cancelledOrders}, Pending: ${stats.pendingOrders}, Delivered: ${stats.deliveredOrders}`);
 
     // Build real data context
     let realDataContext = `\n\nDATABASE STATISTICS (ALWAYS USE THESE EXACT NUMBERS):\n`;

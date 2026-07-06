@@ -96,17 +96,32 @@ export default function AdminProducts() {
   };
 
   const handleEdit = (product) => {
-    setEditingProduct(product);
+    // Reset form data first to avoid state mixing
+    setEditingProduct(null);
     setFormData({
-      name: product.name,
-      description: product.description || '',
-      price: product.price.toString(),
-      category: product.category?._id || '',
-      stock: product.stock.toString(),
-      images: product.images || [],
-      isActive: product.isActive,
+      name: '',
+      description: '',
+      price: '',
+      category: '',
+      stock: '',
+      images: [],
+      isActive: true,
     });
-    setShowModal(true);
+    
+    // Small delay to ensure state is reset, then set new product data
+    setTimeout(() => {
+      setEditingProduct(product);
+      setFormData({
+        name: product.name,
+        description: product.description || '',
+        price: product.price.toString(),
+        category: product.category?._id || '',
+        stock: product.stock.toString(),
+        images: product.images || [],
+        isActive: product.isActive,
+      });
+      setShowModal(true);
+    }, 0);
   };
 
   const handleDelete = async (productId) => {
@@ -122,6 +137,20 @@ export default function AdminProducts() {
   const handleToggleActive = async (product) => {
     try {
       await api.put(`/products/${product._id}`, { isActive: !product.isActive });
+      // Close modal if it's open for this product
+      if (editingProduct && editingProduct._id === product._id) {
+        setShowModal(false);
+        setEditingProduct(null);
+        setFormData({
+          name: '',
+          description: '',
+          price: '',
+          category: '',
+          stock: '',
+          images: [],
+          isActive: true,
+        });
+      }
       fetchProducts();
     } catch (err) {
       alert('Failed to update product status');
