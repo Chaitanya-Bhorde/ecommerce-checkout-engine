@@ -30,11 +30,19 @@ function initializeSocket(server) {
         return next(new Error('Authentication error'));
       }
 
-      // Verify token (you can use your existing auth middleware)
+      // Verify token
       const jwt = require('jsonwebtoken');
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      socket.user = decoded;
+      // Fetch full user document to populate role and _id
+      const User = require('../models/User');
+      const user = await User.findById(decoded.id);
+      
+      if (!user) {
+        return next(new Error('Authentication error: User not found'));
+      }
+      
+      socket.user = user;
       next();
     } catch (error) {
       next(new Error('Authentication error'));
@@ -44,8 +52,13 @@ function initializeSocket(server) {
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.user._id}`);
 
-    // Join user's personal room
+    // Join user's personal room for notifications
     socket.join(`user:${socket.user._id}`);
+    
+    // Join admin room for admin notifications
+    if (socket.user.role === 'admin') {
+      socket.join('admin');
+    }
 
     // Handle incoming messages
     socket.on('sendMessage', async (data) => {

@@ -1,5 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { LanguageProvider } from './contexts/LanguageContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import Login from './pages/Login';
@@ -9,6 +13,7 @@ import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import Orders from './pages/Orders';
 import OrderConfirmation from './pages/OrderConfirmation';
+import Wishlist from './pages/Wishlist';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminOrders from './pages/AdminOrders';
 import AdminProducts from './pages/AdminProducts';
@@ -16,13 +21,19 @@ import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminLedger from './pages/AdminLedger';
 import AdminAIAnalytics from './pages/AdminAIAnalytics';
+import AdminSupportTickets from './pages/AdminSupportTickets';
 import Chat from './pages/Chat';
-import ChatWidget from './components/ChatWidget/ChatWidget';
+import ChangePassword from './pages/ChangePassword';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 export default function App() {
   return (
-    <div style={{ minHeight: '100vh', background: '#f9fafb' }}>
-      <Navbar />
+    <div style={{ minHeight: '100vh', background: '#f9fafb', display: 'flex', flexDirection: 'column' }}>
+      <LanguageProvider>
+      <ThemeProvider>
+      <NotificationProvider>
+        <Navbar />
       <Routes>
         <Route path="/" element={<Navigate to="/products" replace />} />
         <Route path="/login" element={<Login />} />
@@ -48,7 +59,19 @@ export default function App() {
               <OrderConfirmation />
             </ProtectedRoute>
           } />
+          <Route path="/wishlist" element={
+            <ProtectedRoute>
+              <Wishlist />
+            </ProtectedRoute>
+          } />
           <Route path="/chat" element={<Chat />} />
+          <Route path="/change-password" element={
+            <ProtectedRoute>
+              <ChangePassword />
+            </ProtectedRoute>
+          } />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           
           {/* Admin Routes */}
         <Route path="/admin" element={
@@ -91,10 +114,16 @@ export default function App() {
             <AdminAIAnalytics />
           </AdminRoute>
         } />
+        <Route path="/admin/support-tickets" element={
+          <AdminRoute>
+            <AdminSupportTickets />
+          </AdminRoute>
+        } />
       </Routes>
-      
-      {/* AI Chat Widget - Available on all pages */}
-      <ChatWidget />
+        <Footer />
+      </NotificationProvider>
+      </ThemeProvider>
+      </LanguageProvider>
     </div>
   );
 }

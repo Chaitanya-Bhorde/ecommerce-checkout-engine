@@ -7,6 +7,26 @@ const { MongoClient } = require('mongodb');
 let client = null;
 let db = null;
 
+// Lazy-loaded OpenAI client (only initialized when needed)
+let openaiClient = null;
+
+/**
+ * Get or create OpenAI client
+ */
+function getOpenAIClient() {
+  if (!openaiClient) {
+    const OpenAI = require('openai');
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    
+    if (!apiKey || apiKey === 'your-groq-api-key-here') {
+      throw new Error('No valid API key found. Please set OPENAI_API_KEY or GROQ_API_KEY in .env');
+    }
+    
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
+}
+
 /**
  * Initialize MongoDB connection for vector store
  */
@@ -35,26 +55,36 @@ async function initVectorStore() {
 }
 
 /**
- * Create vector embeddings for text
- * Simple embedding function (in production, use proper embedding model)
+ * Create vector embeddings for text using OpenAI embeddings
  * @param {string} text - Text to embed
- * @returns {Array} Embedding vector
+ * @returns {Promise<Array>} Embedding vector (1536 dimensions for text-embedding-3-small)
  */
-function createEmbedding(text) {
-  // Simple hash-based embedding for demo
-  // In production, use: OpenAI embeddings, Cohere, or HuggingFace models
-  const words = text.toLowerCase().split(/\s+/);
-  const embedding = new Array(384).fill(0); // 384-dimensional vector
-  
-  words.forEach((word, index) => {
-    const hash = hashString(word);
-    const position = Math.abs(hash) % 384;
-    embedding[position] += 1;
-  });
-  
-  // Normalize the vector
-  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-  return embedding.map(val => val / magnitude);
+async function createEmbedding(text) {
+  try {
+    // Use OpenAI's text-embedding-3-small model (1536 dimensions)
+    // This is the same model used when inserting documents
+    const openai = getOpenAIClient();
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
+    });
+    
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error('Error creating embedding:', error);
+    // Fallback to simple hash-based embedding if OpenAI fails
+    const words = text.toLowerCase().split(/\s+/);
+    const embedding = new Array(384).fill(0);
+    
+    words.forEach((word) => {
+      const hash = hashString(word);
+      const position = Math.abs(hash) % 384;
+      embedding[position] += 1;
+    });
+    
+    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    return embedding.map(val => val / magnitude);
+  }
 }
 
 /**
@@ -246,7 +276,7 @@ async function createVectorIndex() {
       { embedding: 'vector' },
       {
         name: 'vector_index',
-        dimensions: 384, // Match embedding dimension
+        dimensions: 1536, // Match OpenAI text-embedding-3-small dimensions
         metric: 'cosine', // Similarity metric
       }
     );

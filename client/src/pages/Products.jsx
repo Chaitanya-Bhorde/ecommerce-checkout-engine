@@ -15,9 +15,24 @@ export default function Products() {
     inStock: false,
     page: 1,
   });
+  const [searchTerm, setSearchTerm] = useState(filters.search);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Debounce search input to prevent API calls on every keystroke
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setFilters((prev) => {
+        if (prev.search === searchTerm) return prev;
+        return { ...prev, search: searchTerm, page: 1 };
+      });
+    }, 500);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchTerm]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -122,8 +137,8 @@ export default function Products() {
         <input
           type="text"
           placeholder="Search products..."
-          value={filters.search}
-          onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
           style={{
             padding: '0.55rem 0.85rem',
             border: '1px solid #d1d5db',

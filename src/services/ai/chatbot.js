@@ -1,37 +1,33 @@
 // AI Chatbot Service - Handles customer support conversations
-// Uses Llama 3 (FREE) via Ollama for intelligent responses
-// NOW WITH REAL DATABASE DATA!
+// Uses Groq (FREE, FAST) for intelligent responses
+// NOW WITH REAL DATABASE DATA + PER-USER PERSONALIZATION!
 
-const { llm, getLLM } = require('./llmConfig');
+const { llm, getLLM, AI_PROVIDER, callLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
 const { analyzeAndGetStrategy } = require('./sentimentAnalysis');
+const { getAllDocuments } = require('./knowledgeBase');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
 const User = require('../../models/User');
+const Conversation = require('../../models/Conversation');
+const ChatMessage = require('../../models/ChatMessage');
+const SupportTicket = require('../../models/SupportTicket');
 
-// Chat history management
-const chatHistory = new Map(); // Store conversation history per user
-
-/**
- * Get real order data from database
- * @param {string} userId - User ID
- * @returns {Promise<Array>} User's recent orders
- */
-async function getUserOrders(userId) {
+async function getUserOrders(userId, limit = 5) {
   try {
+    // Validate userId is a valid ObjectId before querying
+    if (!userId || userId.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(userId)) {
+      console.log(`[getUserOrders] Invalid ObjectId format for userId: "${userId}" - returning empty orders`);
+      return [];
+    }
     const orders = await Order.find({ user: userId })
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(limit)
       .select('_id total status createdAt items deliveryProgress');
-    
     return orders.map(order => ({
-      id: order._id,
-      total: order.total,
-      status: order.status,
-      progress: order.deliveryProgress,
-      date: order.createdAt,
-      items: order.items.length,
+      id: order._id, total: order.total, status: order.status,
+      progress: order.deliveryProgress, date: order.createdAt, items: order.items.length,
     }));
   } catch (error) {
     console.error('Error fetching user orders:', error);
@@ -39,273 +35,340 @@ async function getUserOrders(userId) {
   }
 }
 
-/**
- * Get real product recommendations from database
- * @param {string} query - Search query
- * @returns {Promise<Array>} Recommended products
- */
 async function getProductRecommendations(query = '') {
   try {
-    // Get all active products first
-    const products = await Product.find({
-      isActive: true,
-      stock: { $gt: 0 },
-    })
+    console.log(`[getProductRecommendations] Query: "${query}"`);
+    
+    // Get ALL active products with categories
+    const products = await Product.find({ isActive: true, stock: { $gt: 0 } })
       .populate('category', 'name')
       .sort({ createdAt: -1 })
-      .limit(50) // Get more to filter from
+      .limit(100)
       .select('name price images category stock description');
     
-    // If query provided, filter manually
-    if (query) {
-      const filtered = products.filter(product => {
-        const searchText = `${product.name} ${product.category?.name || ''}`.toLowerCase();
-        return searchText.includes(query.toLowerCase());
-      });
-      return filtered.slice(0, 5).map(product => ({
-        id: product._id,
-        name: product.name,
-        price: product.price,
-        category: product.category?.name || 'General',
-        stock: product.stock,
-        image: product.images?.[0] || null,
-      }));
-    }
+    console.log(`[getProductRecommendations] Found ${products.length} total products`);
     
-    // Return first 5 if no query
-    return products.slice(0, 5).map(product => ({
-      id: product._id,
-      name: product.name,
+    // Also get distinct categories
+    const Category = require('../../models/Category');
+    const categories = await Category.find({ isActive: true }).select('name');
+    const categoryNames = categories.map(c => c.name);
+    console.log(`[getProductRecommendations] Categories:`, categoryNames);
+    
+    const mappedProducts = products.map(product => ({
+      id: product._id, 
+      name: product.name, 
       price: product.price,
-      category: product.category?.name || 'General',
-      stock: product.stock,
+      category: product.category?.name || 'General', 
+      stock: product.stock, 
       image: product.images?.[0] || null,
     }));
+    
+    // If no query, return ALL products (not just first 5)
+    if (!query || query.trim() === '') {
+      console.log(`[getProductRecommendations] No query, returning ALL ${products.length} products`);
+      return mappedProducts;
+    }
+    
+    // Search for matching products
+    const queryLower = query.toLowerCase();
+    const filtered = products.filter(product => {
+      const productName = product.name.toLowerCase();
+      const categoryName = product.category?.name?.toLowerCase() || '';
+      const description = product.description?.toLowerCase() || '';
+      
+      // Match if query is in name, category, or description
+      return productName.includes(queryLower) || 
+             categoryName.includes(queryLower) || 
+             description.includes(queryLower);
+    });
+    
+    console.log(`[getProductRecommendations] Filtered to ${filtered.length} products matching "${query}"`);
+    
+    // If no matches, return ALL products so AI can see available categories
+    if (filtered.length === 0) {
+      console.log(`[getProductRecommendations] No matches, returning ALL ${products.length} products`);
+      return mappedProducts;
+    }
+    
+    // Return up to 20 matching products
+    return mappedProducts.filter(p => 
+      p.name.toLowerCase().includes(queryLower) || 
+      p.category.toLowerCase().includes(queryLower)
+    ).slice(0, 20);
   } catch (error) {
     console.error('Error fetching products:', error);
     return [];
   }
 }
 
-/**
- * Get total statistics from database
- */
 async function getDatabaseStats() {
   try {
-    const totalOrders = await Order.countDocuments();
-    const totalProducts = await Product.countDocuments({ isActive: true });
-    const totalUsers = await User.countDocuments();
-    const cancelledOrders = await Order.countDocuments({ status: 'cancelled' });
-    const deliveredOrders = await Order.countDocuments({ status: 'delivered' });
+    const [totalOrders, totalProducts, totalUsers, cancelledOrders, deliveredOrders] = await Promise.all([
+      Order.countDocuments(),
+      Product.countDocuments({ isActive: true }),
+      User.countDocuments(),
+      Order.countDocuments({ status: 'cancelled' }),
+      Order.countDocuments({ status: 'delivered' }),
+    ]);
     const pendingOrders = await Order.countDocuments({ status: { $in: ['pending', 'processing', 'shipped'] } });
-    
-    return {
-      totalOrders,
-      totalProducts,
-      totalUsers,
-      cancelledOrders,
-      deliveredOrders,
-      pendingOrders,
-    };
+    return { totalOrders, totalProducts, totalUsers, cancelledOrders, deliveredOrders, pendingOrders };
   } catch (error) {
     console.error('Error fetching stats:', error);
-    return {
-      totalOrders: 0,
-      totalProducts: 0,
-      totalUsers: 0,
-      cancelledOrders: 0,
-      deliveredOrders: 0,
-      pendingOrders: 0,
-    };
+    return { totalOrders: 0, totalProducts: 0, totalUsers: 0, cancelledOrders: 0, deliveredOrders: 0, pendingOrders: 0 };
   }
 }
 
-/**
- * Main chatbot function - processes user messages and returns AI responses
- * WITH REAL DATABASE STATISTICS
- * @param {string} userId - User ID for conversation tracking
- * @param {string} message - User's message
- * @param {object} context - Additional context (order info, user info, etc.)
- * @returns {Promise<string>} AI response
- */
-async function chat(userId, message, context = {}) {
-  console.log(`[Chatbot] Processing message for user ${userId}: ${message}`);
+async function chat(userId, message, context = {}, conversationId = null) {
+  const userName = context.userName || 'Customer';
+  const userEmail = context.userEmail || '';
+  const userRole = context.userRole || 'customer';
+  const normalizedUserId = String(userId);
+  
+  console.log(`[Chatbot] ========================================`);
+  console.log(`[Chatbot] Processing message for user ${userName} (${normalizedUserId}): ${message}`);
+  console.log(`[Chatbot] Context received:`, JSON.stringify(context));
+  console.log(`[Chatbot] ========================================`);
+  console.log(`[Chatbot] AI_PROVIDER: ${AI_PROVIDER}`);
+  console.log(`[Chatbot] LLM object type: ${typeof llm}`);
+  console.log(`[Chatbot] LLM has invoke: ${typeof llm.invoke}`);
   
   try {
-    // Get or create chat history for user
-    if (!chatHistory.has(userId)) {
-      chatHistory.set(userId, []);
-    }
-    const history = chatHistory.get(userId);
+    // PART 2: Detect if user wants all orders
+    const allOrdersKeywords = ['all my orders', 'complete history', 'every order', 'all of them', 'all orders'];
+    const wantsAllOrders = allOrdersKeywords.some(kw => message.toLowerCase().includes(kw));
+    const orderLimit = wantsAllOrders ? 50 : 5;
 
-    console.log(`[Chatbot] Fetching FRESH database stats...`);
-    // FETCH REAL STATISTICS - ALWAYS FRESH, NO CACHING
+    // Get or create conversation
+    let currentConversationId = conversationId;
+    if (!currentConversationId) {
+      // Create new conversation with auto-generated title
+      const title = message.substring(0, 40) + (message.length > 40 ? '...' : '');
+      const conversation = await Conversation.create({
+        userId: normalizedUserId,
+        title: title,
+      });
+      currentConversationId = conversation._id;
+    }
+
+    // Fetch conversation history from database
+    const historyMessages = await ChatMessage.find({ conversationId: currentConversationId })
+      .sort({ timestamp: 1 })
+      .limit(20);
+    
+    const history = historyMessages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    console.log(`[Chatbot] Fetching FRESH database stats for ${userName}...`);
     const [userOrders, recommendations, stats] = await Promise.all([
-      getUserOrders(userId),
+      getUserOrders(normalizedUserId, orderLimit),
       getProductRecommendations(message),
-      getDatabaseStats(), // This always fetches fresh data from DB
+      getDatabaseStats(),
     ]);
 
-    console.log(`[Chatbot] Stats (FRESH) - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}, Cancelled: ${stats.cancelledOrders}, Pending: ${stats.pendingOrders}, Delivered: ${stats.deliveredOrders}`);
+    console.log(`[Chatbot] Stats (FRESH) - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
 
-    // Build real data context
-    let realDataContext = `\n\nDATABASE STATISTICS (ALWAYS USE THESE EXACT NUMBERS):\n`;
-    realDataContext += `- Total Orders: ${stats.totalOrders}\n`;
-    realDataContext += `- Pending/Delivery Orders: ${stats.pendingOrders}\n`;
-    realDataContext += `- Delivered Orders: ${stats.deliveredOrders}\n`;
-    realDataContext += `- Cancelled Orders: ${stats.cancelledOrders}\n`;
-    realDataContext += `- Total Products: ${stats.totalProducts}\n`;
-    realDataContext += `- Total Users: ${stats.totalUsers}\n\n`;
+    // RAG: Try vector store - don't fail if unavailable
+    let relevantDocs = [];
+    try {
+      console.log(`[RAG] Searching vector store...`);
+      relevantDocs = await vectorStore.search(message, 3);
+      console.log(`[RAG] Retrieved ${relevantDocs.length} relevant documents`);
+    } catch (ragError) {
+      console.log(`[RAG] Vector store unavailable, using database data only. Error: ${ragError.message}`);
+    }
+
+    // Build personalized context with ALL products always available
+    let systemPrompt = `You are a helpful customer support assistant for an e-commerce store called "ShopEase". You are talking to ${userName}.
+
+CURRENT USER:
+- Name: ${userName}
+- Email: ${userEmail}
+- Role: ${userRole}
+- Orders: ${userOrders.length > 0 ? userOrders.length + ' orders placed' : 'New customer (no orders yet)'}\n\n`;
+
+    systemPrompt += `DATABASE STATS:\n- Total Orders: ${stats.totalOrders}\n- Pending: ${stats.pendingOrders}\n- Delivered: ${stats.deliveredOrders}\n- Cancelled: ${stats.cancelledOrders}\n- Products: ${stats.totalProducts}\n- Users: ${stats.totalUsers}\n\n`;
+
+    if (relevantDocs.length > 0) {
+      systemPrompt += `KNOWLEDGE BASE:\n`;
+      relevantDocs.forEach((doc, i) => { systemPrompt += `${i+1}. ${doc.pageContent}\n`; });
+    }
 
     if (userOrders.length > 0) {
-      realDataContext += `Your Recent Orders:\n`;
-      userOrders.forEach((order, index) => {
-        realDataContext += `${index + 1}. Order #${order.id.slice(-8)} - ₹${order.total} - ${order.status} (${order.progress}%)\n`;
-      });
+      systemPrompt += `\n${userName}'S ORDERS:\n`;
+      const displayOrders = userOrders.slice(0, 10);
+      displayOrders.forEach((o, i) => { systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status}\n`; });
+      
+      if (userOrders.length > 10) {
+        systemPrompt += `\n...and ${userOrders.length - 10} more orders. Ask me about a specific order ID for full details.\n`;
+      }
+    } else if (!message.toLowerCase().includes('product') && !message.toLowerCase().includes('recommend')) {
+      systemPrompt += `\n${userName} has no orders yet - welcome them as a new customer!\n`;
     }
 
-    if (recommendations.length > 0) {
-      realDataContext += `\nAvailable Products:\n`;
-      recommendations.forEach((product, index) => {
-        realDataContext += `${index + 1}. ${product.name} - ₹${product.price} (${product.category})\n`;
-      });
-    }
+    // ALWAYS show all products regardless of match
+    systemPrompt += `\nCOMPLETE PRODUCT CATALOG (ALL ${stats.totalProducts} PRODUCTS - THIS IS THE FULL LIST):\n`;
+    recommendations.forEach((p, i) => { 
+      systemPrompt += `- ${p.name} | ₹${p.price} | Category: ${p.category}\n`; 
+    });
+    systemPrompt += `\n`;
 
-    // Simple system prompt
-    const systemPrompt = `You are a helpful customer support assistant for an e-commerce store.
+    systemPrompt += `\nCRITICAL RULES YOU MUST FOLLOW:
+1. Address user ONLY as "${userName}" - NEVER use any other name
+2. When user asks "do you have X category?", LOOK at ALL products above and check their categories
+3. If a product exists in the list, YOU HAVE IT - do NOT say "we don't have"
+4. If user says they saw a product like "wireless mouse", CHECK the product names above
+5. NEVER say "we don't have [category]" without first checking ALL products in the catalog above
+6. Use EXACT numbers from DATABASE STATS - never make up numbers
+7. List actual product names and prices from the catalog above when asked about products
+8. Be concise (under 80 words), polite, and helpful`;
 
-${realDataContext}
+    console.log(`[Chatbot] System prompt built with ${recommendations.length} products`);
 
-CRITICAL INSTRUCTIONS:
-1. ALWAYS use the EXACT numbers from DATABASE STATISTICS above - NEVER say 0 if the number is not 0
-2. When asked about orders, clarify which type:
-   - "Total orders" = ${stats.totalOrders}
-   - "Pending/Delivery orders" = ${stats.pendingOrders}
-   - "Delivered orders" = ${stats.deliveredOrders}
-   - "Cancelled orders" = ${stats.cancelledOrders}
-3. NEVER make up numbers or estimates
-4. If user asks about orders, use their actual order data from "Your Recent Orders" section
-5. If user asks about products, use the actual product data from "Available Products" section
-6. Be specific with names, prices, and status
-7. Keep responses concise (under 80 words) - be FAST and SHORT
-8. Be polite and helpful`;
-
-    console.log(`[Chatbot] Getting AI response from Llama 3...`);
-    
-    // Simple direct LLM call
+    // Build messages array with history (ONLY include user messages - not previous AI responses)
     const messages = [
       { role: 'system', content: systemPrompt },
+      ...history.filter(msg => msg.role === 'user').map(msg => ({ role: msg.role, content: msg.content })),
       { role: 'user', content: message },
     ];
 
+    console.log(`[Chatbot] Getting AI response from ${AI_PROVIDER}...`);
+    console.log(`[Chatbot] About to call llm.invoke() with ${messages.length} messages`);
+    console.log(`[Chatbot] Calling LLM with timeout...`);
     const response = await llm.invoke(messages);
-    let aiResponse = response.content;
-    
-    console.log(`[Chatbot] AI response received: ${aiResponse.substring(0, 50)}...`);
+    console.log(`[Chatbot] LLM response object type:`, typeof response, response ? Object.keys(response) : 'null');
+    const aiResponse = response.content;
 
-    // Update chat history
-    history.push(
-      { role: 'user', content: message },
-      { role: 'assistant', content: aiResponse }
-    );
+    console.log(`[Chatbot] ✅ Response for ${userName}: "${aiResponse.substring(0, 80)}..."`);
 
-    // Keep only last 20 messages
-    if (history.length > 20) {
-      chatHistory.set(userId, history.slice(-20));
+    // Save user message and AI response to database
+    await ChatMessage.create({
+      conversationId: currentConversationId,
+      userId: normalizedUserId,
+      role: 'user',
+      content: message,
+    });
+
+    await ChatMessage.create({
+      conversationId: currentConversationId,
+      userId: normalizedUserId,
+      role: 'assistant',
+      content: aiResponse,
+    });
+
+    // Update conversation's updatedAt timestamp
+    await Conversation.findByIdAndUpdate(currentConversationId, { updatedAt: Date.now() });
+
+    // PART 3: Check if should escalate to human
+    let escalate = false;
+    let supportTicket = null;
+    if (shouldEscalateToHuman(message)) {
+      escalate = true;
+      supportTicket = await SupportTicket.create({
+        userId: normalizedUserId,
+        userName: userName,
+        userEmail: userEmail,
+        conversationId: currentConversationId,
+        reason: message,
+        status: 'open',
+      });
+      
+      const ticketAcknowledgment = `\n\nI've connected you with our support team - they'll follow up shortly. Your ticket number is #${supportTicket._id.toString().slice(-8)}.`;
+      aiResponse += ticketAcknowledgment;
     }
 
-    console.log(`[Chatbot] Response sent successfully`);
-    return aiResponse;
+    return {
+      response: aiResponse,
+      conversationId: currentConversationId.toString(),
+      escalate,
+      ticketId: supportTicket ? supportTicket._id.toString() : null,
+    };
   } catch (error) {
-    console.error('[Chatbot] Error:', error);
-    return "I'm sorry, I'm having trouble right now. Let me connect you with a human agent who can help you better.";
+    console.error('[Chatbot] ❌ Error:', error.message);
+    console.error('[Chatbot] Stack:', error.stack);
+    console.error('[Chatbot] FULL ERROR OBJECT:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    console.error('[Chatbot] Error name:', error.name);
+    console.error('[Chatbot] Error cause:', error.cause);
+    console.error('[Chatbot] Error code:', error.code);
+    
+    // Provide a graceful fallback response based on user data if possible
+    try {
+      const stats = await getDatabaseStats();
+      return {
+        response: `Hi ${userName}! I'm currently experiencing a temporary issue with my AI service. Here's what I know: We have ${stats.totalOrders} total orders, ${stats.totalProducts} products available, and ${stats.totalUsers} registered users. How can I assist you further?`,
+        conversationId: null,
+        escalate: false,
+        ticketId: null,
+      };
+    } catch {
+      return {
+        response: `Hi ${userName}! I'm experiencing a temporary technical issue. Our support team is available to help. Please try again in a few moments.`,
+        conversationId: null,
+        escalate: false,
+        ticketId: null,
+      };
+    }
   }
 }
 
-/**
- * Clear chat history for a user
- * @param {string} userId - User ID
- */
-function clearChatHistory(userId) {
-  chatHistory.delete(userId);
+async function clearChatHistory(conversationId) {
+  if (!conversationId) return;
+  await ChatMessage.deleteMany({ conversationId });
+  await Conversation.findByIdAndDelete(conversationId);
 }
 
-/**
- * Get chat history for a user
- * @param {string} userId - User ID
- * @returns {Array} Chat history
- */
-function getChatHistory(userId) {
-  return chatHistory.get(userId) || [];
+async function getChatHistory(conversationId) {
+  if (!conversationId) return [];
+  const messages = await ChatMessage.find({ conversationId })
+    .sort({ timestamp: 1 })
+    .limit(50);
+  return messages.map(msg => ({
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp,
+  }));
 }
 
-/**
- * Check if AI should escalate to human
- * @param {string} message - User message
- * @returns {boolean} True if should escalate
- */
+async function getConversations(userId) {
+  const normalizedUserId = String(userId);
+  const conversations = await Conversation.find({ userId: normalizedUserId })
+    .sort({ updatedAt: -1 })
+    .limit(50);
+  return conversations.map(conv => ({
+    id: conv._id,
+    title: conv.title,
+    updatedAt: conv.updatedAt,
+  }));
+}
+
+async function deleteConversation(conversationId, userId) {
+  const normalizedUserId = String(userId);
+  const conversation = await Conversation.findOne({ _id: conversationId, userId: normalizedUserId });
+  if (!conversation) return false;
+  
+  await ChatMessage.deleteMany({ conversationId });
+  await Conversation.findByIdAndDelete(conversationId);
+  return true;
+}
+
 function shouldEscalateToHuman(message) {
-  const escalationKeywords = [
-    'speak to human',
-    'talk to agent',
-    'human help',
-    'real person',
-    'manager',
-    'complaint',
-    'refund immediately',
-    'cancel immediately',
-  ];
-
-  const lowerMessage = message.toLowerCase();
-  return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
+  const keywords = ['speak to human', 'talk to agent', 'human help', 'real person', 'manager', 'complaint', 'refund immediately', 'cancel immediately'];
+  return keywords.some(kw => message.toLowerCase().includes(kw));
 }
 
-/**
- * Get suggested quick replies based on context
- * @param {string} userId - User ID
- * @returns {Array} Array of suggested replies
- */
-function getSuggestedReplies(userId) {
-  const history = chatHistory.get(userId) || [];
-  const lastMessage = history[history.length - 1]?.content?.toLowerCase() || '';
-
-  if (lastMessage.includes('order') || lastMessage.includes('tracking')) {
-    return [
-      'Where is my order?',
-      'How to cancel order?',
-      'Delivery time?',
-    ];
-  }
-
-  if (lastMessage.includes('product') || lastMessage.includes('recommend')) {
-    return [
-      'Show me wireless headphones',
-      'Best sellers',
-      'Under ₹2000',
-    ];
-  }
-
-  if (lastMessage.includes('return') || lastMessage.includes('refund')) {
-    return [
-      'Return policy',
-      'How to return?',
-      'Refund status',
-    ];
-  }
-
-  // Default suggestions
-  return [
-    'Track my order',
-    'Product recommendations',
-    'Return policy',
-    'Talk to human agent',
-  ];
+async function getSuggestedReplies(userId, conversationId = null) {
+  // For now, return default suggestions based on common topics
+  // Could be enhanced later to be context-aware
+  return ['Track my order', 'Product recommendations', 'Return policy', 'Talk to human agent'];
 }
 
 module.exports = {
   chat,
   clearChatHistory,
   getChatHistory,
+  getConversations,
+  deleteConversation,
   shouldEscalateToHuman,
   getSuggestedReplies,
   getUserOrders,

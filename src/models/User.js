@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      index: true, // Index for faster lookups
     },
     password: {
       type: String,
@@ -25,10 +26,30 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['customer', 'admin'],
       default: 'customer',
+      index: true, // Index for role-based queries
+    },
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+    resetPasswordExpiry: {
+      type: Date,
+      select: false,
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationToken: {
+      type: String,
+      select: false,
     },
   },
   { timestamps: true }
 );
+
+// Index for password reset queries
+userSchema.index({ resetPasswordToken: 1, resetPasswordExpiry: 1 }, { sparse: true });
 
 // Hash password before saving
 userSchema.pre('save', async function () {

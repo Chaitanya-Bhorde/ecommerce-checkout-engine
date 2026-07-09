@@ -1,138 +1,138 @@
 const mongoose = require('mongoose');
 
-const orderItemSchema = new mongoose.Schema({
-  product: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
-    required: [true, 'Product reference is required'],
-  },
-  name: {
-    type: String,
-    required: [true, 'Product name is required'],
-  },
-  quantity: {
-    type: Number,
-    required: [true, 'Quantity is required'],
-    min: [1, 'Quantity must be at least 1'],
-  },
-  price: {
-    type: Number,
-    required: [true, 'Price is required'],
-    min: [0, 'Price cannot be negative'],
-  },
-  image: {
-    type: String,
-    default: null,
-  },
-});
-
-const paymentSchema = new mongoose.Schema({
-  method: {
-    type: String,
-    enum: ['razorpay', 'stripe', 'cod', null],
-    default: null,
-  },
-  razorpayOrderId: {
-    type: String,
-    default: null,
-  },
-  razorpayPaymentId: {
-    type: String,
-    default: null,
-  },
-  paidAt: {
-    type: Date,
-    default: null,
-  },
-});
-
 const orderSchema = new mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'User reference is required'],
+      required: true,
+      index: true, // Index for user's order queries
     },
-    items: [orderItemSchema],
+    items: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Product',
+          required: true,
+        },
+        name: {
+          type: String,
+          required: true,
+        },
+        quantity: {
+          type: Number,
+          required: true,
+          min: 1,
+        },
+        price: {
+          type: Number,
+          required: true,
+        },
+        image: {
+          type: String,
+        },
+      },
+    ],
     shippingAddress: {
-      fullName: { type: String, required: [true, 'Full name is required'] },
-      phone: { type: String, required: [true, 'Phone number is required'] },
-      address: { type: String, required: [true, 'Address is required'] },
-      city: { type: String, required: [true, 'City is required'] },
-      state: { type: String, required: [true, 'State is required'] },
-      pincode: { type: String, required: [true, 'Pincode is required'] },
+      address: {
+        type: String,
+        required: true,
+      },
+      city: {
+        type: String,
+        required: true,
+      },
+      state: {
+        type: String,
+        required: true,
+      },
+      zipCode: {
+        type: String,
+        required: true,
+      },
+      country: {
+        type: String,
+        required: true,
+      },
+      phone: {
+        type: String,
+        required: true,
+      },
     },
     payment: {
-      type: paymentSchema,
-      default: {
-        method: null,
-        razorpayOrderId: null,
-        razorpayPaymentId: null,
-        paidAt: null,
+      method: {
+        type: String,
+        enum: ['razorpay', 'cod'],
+      },
+      razorpayOrderId: {
+        type: String,
+      },
+      razorpayPaymentId: {
+        type: String,
+      },
+      paidAt: {
+        type: Date,
       },
     },
     subtotal: {
       type: Number,
-      required: [true, 'Subtotal is required'],
-      min: [0, 'Subtotal cannot be negative'],
+      required: true,
     },
     tax: {
       type: Number,
-      default: 0,
-      min: [0, 'Tax cannot be negative'],
+      required: true,
     },
     shippingCost: {
       type: Number,
-      default: 0,
-      min: [0, 'Shipping cost cannot be negative'],
+      required: true,
     },
     total: {
       type: Number,
-      required: [true, 'Total is required'],
-      min: [0, 'Total cannot be negative'],
+      required: true,
     },
     status: {
       type: String,
       enum: ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'received', 'cancelled', 'refunded'],
       default: 'pending',
+      index: true, // Index for status filtering
     },
     deliveryProgress: {
       type: Number,
       default: 0,
-      min: 0,
-      max: 100,
     },
     statusHistory: [
       {
-        status: { type: String, required: true },
-        changedAt: { type: Date, default: Date.now },
-        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        note: { type: String, default: '' },
-        deliveryProgress: { type: Number, default: 0 },
+        status: {
+          type: String,
+          required: true,
+        },
+        changedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        changedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        note: {
+          type: String,
+        },
+        deliveryProgress: {
+          type: Number,
+        },
       },
     ],
-    trackingId: {
-      type: String,
-      default: null,
-    },
-    notes: {
-      type: String,
-      default: '',
-    },
   },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
+  { timestamps: true }
 );
 
+// Compound index for user's orders sorted by date
 orderSchema.index({ user: 1, createdAt: -1 });
-orderSchema.index({ status: 1 });
-orderSchema.index({ 'payment.razorpayPaymentId': 1 });
 
-orderSchema.virtual('itemCount').get(function () {
-  return this.items.reduce((total, item) => total + item.quantity, 0);
-});
+// Index for admin order filtering by status and date
+orderSchema.index({ status: 1, createdAt: -1 });
+
+// Index for date range queries
+orderSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Order', orderSchema);

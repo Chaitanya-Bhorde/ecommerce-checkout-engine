@@ -9,7 +9,6 @@ export default function AdminOrders() {
   const [error, setError] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [selectedStatus, setSelectedStatus] = useState('');
 
   const currentPage = Number(searchParams.get('page')) || 1;
   const statusFilter = searchParams.get('status') || '';
@@ -36,8 +35,8 @@ export default function AdminOrders() {
   const handleStatusChange = async (orderId, newStatus) => {
     try {
       await api.put(`/admin/orders/${orderId}/status`, { status: newStatus });
-      setStatusUpdate({ ...statusUpdate, [orderId]: newStatus });
-      fetchOrders();
+      // Refresh orders list to show updated status
+      await fetchOrders();
     } catch (err) {
       alert('Failed to update order status');
     }
@@ -159,9 +158,8 @@ export default function AdminOrders() {
                       </td>
                       <td>
                         <select
-                          value={selectedStatus || order.status}
+                          value={order.status}
                           onChange={(e) => {
-                            setSelectedStatus(e.target.value);
                             handleStatusChange(order._id, e.target.value);
                           }}
                           className="status-select"

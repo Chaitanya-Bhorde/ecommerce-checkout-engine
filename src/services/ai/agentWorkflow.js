@@ -1,19 +1,37 @@
-// Agentic AI Workflow using LangGraph
+ // Agentic AI Workflow using LangGraph
 // This defines the AI's decision-making process
 // The AI can now THINK and ACT, not just chat!
 
 const { StateGraph, END } = require('@langchain/langgraph');
-const { ChatOllama } = require('@langchain/ollama');
 const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
+const { getLLM } = require('./llmConfig'); // FIXED: use shared config (respects AI_PROVIDER=groq) instead of hardcoded Ollama
 const { cancelOrder, processReturn, updateDeliveryAddress, getOrderDetails, searchProducts, applyDiscountCode, getUserRecentOrders } = require('./agentTools');
 
-// Initialize LLM
-const llm = new ChatOllama({
-  baseUrl: "http://localhost:11434",
-  model: "llama3",
-  temperature: 0.3, // Lower temperature for more precise decisions
-  maxTokens: 300,
-});
+// FIXED: This now uses whatever AI_PROVIDER is set to in .env (groq/openai/ollama)
+// instead of always hardcoding Ollama regardless of config.
+const llm = getLLM('support');
+
+// FIXED: LangChain message objects (SystemMessage/HumanMessage/AIMessage) can't be sent
+// directly to the Groq/OpenAI fetch() calls in llmConfig.js - those expect plain
+// { role, content } objects. This helper converts them before calling llm.invoke().
+function toPlainMessages(messages) {
+  return messages.map((m) => {
+    let role = 'user';
+    const type = typeof m._getType === 'function' ? m._getType() : null;
+    if (type === 'system') role = 'system';
+    else if (type === 'ai') role = 'assistant';
+    else if (type === 'human') role = 'user';
+    else if (m.role) role = m.role; // already a plain object
+    return { role, content: m.content };
+  });
+}
+
+// FIXED: Confirmation state must survive across separate HTTP requests
+// (e.g. "cancel order #123" -> AI asks to confirm -> user replies "yes" in a NEW request).
+// Previously, runAgent() created a brand-new state on every call, so the confirmation
+// was always forgotten by the time the "yes" message arrived. This map persists it
+// per-user, the same pattern already used for chatHistory in chatbot.js.
+const pendingConfirmations = new Map();
 
 /**
  * Agent State - Tracks conversation and actions
@@ -34,8 +52,7 @@ class AgentState {
  */
 async function analyzeIntent(state) {
   const lastMessage = state.messages[state.messages.length - 1].content.toLowerCase();
-  
-  // Intent detection patterns
+
   const intents = {
     cancelOrder: ['cancel', 'cancellation', 'cancel my order'],
     returnOrder: ['return', 'refund', 'send back', 'return policy'],
@@ -47,7 +64,7 @@ async function analyzeIntent(state) {
   };
 
   for (const [intent, patterns] of Object.entries(intents)) {
-    if (patterns.some(pattern => lastMessage.includes(pattern))) {
+    if (patterns.some((pattern) => lastMessage.includes(pattern))) {
       return intent;
     }
   }
@@ -59,7 +76,6 @@ async function analyzeIntent(state) {
  * Extract order ID from message
  */
 function extractOrderId(message) {
-  // Match patterns like "order #123", "order 123", "#123"
   const patterns = [
     /order\s*#?(\w{8,})/i,
     /#(\w{8,})/,
@@ -107,8 +123,9 @@ async function handleGeneralChat(state) {
     ...state.messages.slice(-10),
   ];
 
-  const response = await llm.invoke(messages);
-  
+  // FIXED: convert to plain {role, content} before calling the shared llm (Groq/OpenAI/Ollama)
+  const response = await llm.invoke(toPlainMessages(messages));
+
   return {
     messages: [...state.messages, new AIMessage(response.content)],
     currentAction: null,
@@ -121,7 +138,7 @@ async function handleGeneralChat(state) {
  */
 async function handleCancelOrder(state) {
   const orderId = extractOrderId(state.messages[state.messages.length - 1].content);
-  
+
   if (!orderId) {
     return {
       messages: [...state.messages, new AIMessage("I can help you cancel your order. Please provide your order ID (e.g., 'Cancel order #ABC12345').")],
@@ -130,9 +147,7 @@ async function handleCancelOrder(state) {
     };
   }
 
-  // Ask for confirmation
-  state.needsConfirmation = true;
-  state.confirmationData = {
+  const confirmationData = {
     action: 'cancelOrder',
     orderId,
     tool: cancelOrder,
@@ -144,7 +159,7 @@ async function handleCancelOrder(state) {
     currentAction: 'cancelOrder',
     actionResult: null,
     needsConfirmation: true,
-    confirmationData: state.confirmationData,
+    confirmationData,
   };
 }
 
@@ -153,7 +168,7 @@ async function handleCancelOrder(state) {
  */
 async function handleReturnOrder(state) {
   const orderId = extractOrderId(state.messages[state.messages.length - 1].content);
-  
+
   if (!orderId) {
     return {
       messages: [...state.messages, new AIMessage("I can help you initiate a return. Please provide your order ID (e.g., 'Return order #ABC12345').")],
@@ -162,9 +177,7 @@ async function handleReturnOrder(state) {
     };
   }
 
-  // Ask for confirmation
-  state.needsConfirmation = true;
-  state.confirmationData = {
+  const confirmationData = {
     action: 'processReturn',
     orderId,
     tool: processReturn,
@@ -176,7 +189,7 @@ async function handleReturnOrder(state) {
     currentAction: 'processReturn',
     actionResult: null,
     needsConfirmation: true,
-    confirmationData: state.confirmationData,
+    confirmationData,
   };
 }
 
@@ -185,7 +198,7 @@ async function handleReturnOrder(state) {
  */
 async function handleUpdateAddress(state) {
   const orderId = extractOrderId(state.messages[state.messages.length - 1].content);
-  
+
   if (!orderId) {
     return {
       messages: [...state.messages, new AIMessage("I can help you update your delivery address. Please provide your order ID (e.g., 'Update address for order #ABC12345').")],
@@ -194,7 +207,6 @@ async function handleUpdateAddress(state) {
     };
   }
 
-  // Ask for new address
   return {
     messages: [...state.messages, new AIMessage(`I found order #${orderId.slice(-8).toUpperCase()}. Please provide the new delivery address.`)],
     currentAction: 'updateAddress',
@@ -208,23 +220,22 @@ async function handleUpdateAddress(state) {
  */
 async function handleCheckOrder(state) {
   const orderId = extractOrderId(state.messages[state.messages.length - 1].content);
-  
+
   if (!orderId) {
-    // Get user's recent orders
     const result = await getUserRecentOrders(state.userId, 3);
-    
+
     if (result.success && result.orders.length > 0) {
-      const orderList = result.orders.map(o => 
+      const orderList = result.orders.map((o) =>
         `- Order #${o.id.slice(-8).toUpperCase()}: ${o.status} (${o.progress}%) - ₹${o.total}`
       ).join('\n');
-      
+
       return {
         messages: [...state.messages, new AIMessage(`Here are your recent orders:\n${orderList}\n\nWhich order would you like to check? Please provide the order ID.`)],
         currentAction: null,
         actionResult: null,
       };
     }
-    
+
     return {
       messages: [...state.messages, new AIMessage("I couldn't find any recent orders. Please provide your order ID to check the status.")],
       currentAction: null,
@@ -232,9 +243,8 @@ async function handleCheckOrder(state) {
     };
   }
 
-  // Get order details
   const result = await getOrderDetails(orderId, state.userId);
-  
+
   if (result.success) {
     const order = result.order;
     const response = `Order ${order.orderNumber}:\n` +
@@ -244,7 +254,7 @@ async function handleCheckOrder(state) {
       `Date: ${new Date(order.date).toLocaleDateString()}\n` +
       `Items: ${order.items.length} item(s)\n\n` +
       `Is there anything else you'd like to know about this order?`;
-    
+
     return {
       messages: [...state.messages, new AIMessage(response)],
       currentAction: null,
@@ -264,8 +274,7 @@ async function handleCheckOrder(state) {
  */
 async function handleSearchProducts(state) {
   const lastMessage = state.messages[state.messages.length - 1].content;
-  
-  // Extract search query
+
   const searchQuery = lastMessage
     .replace(/show me|recommend|suggest|looking for|find/gi, '')
     .trim();
@@ -279,14 +288,14 @@ async function handleSearchProducts(state) {
   }
 
   const result = await searchProducts(searchQuery, 5);
-  
+
   if (result.success && result.products.length > 0) {
-    const productList = result.products.map((p, i) => 
+    const productList = result.products.map((p, i) =>
       `${i + 1}. ${p.name} - ₹${p.price} (${p.category})`
     ).join('\n');
-    
+
     const response = `Here are some products I found:\n${productList}\n\nWould you like more details about any of these?`;
-    
+
     return {
       messages: [...state.messages, new AIMessage(response)],
       currentAction: null,
@@ -302,58 +311,11 @@ async function handleSearchProducts(state) {
 }
 
 /**
- * Node: Execute confirmed action
- */
-async function executeConfirmedAction(state) {
-  if (!state.confirmationData || !state.needsConfirmation) {
-    return state;
-  }
-
-  const { tool, params } = state.confirmationData;
-  
-  try {
-    const result = await tool(params.orderId, params.userId, params.reason);
-    
-    state.needsConfirmation = false;
-    state.confirmationData = null;
-    state.actionResult = result;
-
-    return {
-      messages: [...state.messages, new AIMessage(result.message)],
-      currentAction: null,
-      actionResult: result,
-      needsConfirmation: false,
-      confirmationData: null,
-    };
-  } catch (error) {
-    return {
-      messages: [...state.messages, new AIMessage("Sorry, I encountered an error while processing your request. Please try again or contact support.")],
-      currentAction: null,
-      actionResult: null,
-      needsConfirmation: false,
-      confirmationData: null,
-    };
-  }
-}
-
-/**
  * Router - Decides which node to go to next
  */
 async function router(state) {
-  if (state.needsConfirmation) {
-    const lastMessage = state.messages[state.messages.length - 1].content.toLowerCase();
-    
-    if (lastMessage.includes('yes') || lastMessage.includes('confirm') || lastMessage.includes('sure')) {
-      return 'executeAction';
-    }
-    
-    if (lastMessage.includes('no') || lastMessage.includes('cancel')) {
-      return 'generalChat';
-    }
-  }
-
   const intent = state.currentAction || await analyzeIntent(state);
-  
+
   switch (intent) {
     case 'cancelOrder':
       return 'cancelOrder';
@@ -385,19 +347,15 @@ function createAgentWorkflow() {
     },
   });
 
-  // Add nodes
   workflow.addNode('generalChat', handleGeneralChat);
   workflow.addNode('cancelOrder', handleCancelOrder);
   workflow.addNode('returnOrder', handleReturnOrder);
   workflow.addNode('updateAddress', handleUpdateAddress);
   workflow.addNode('checkOrder', handleCheckOrder);
   workflow.addNode('searchProducts', handleSearchProducts);
-  workflow.addNode('executeAction', executeConfirmedAction);
 
-  // Set entry point
   workflow.setEntryPoint('generalChat');
 
-  // Add conditional edges from generalChat
   workflow.addConditionalEdges('generalChat', router, {
     generalChat: END,
     cancelOrder: 'cancelOrder',
@@ -405,30 +363,86 @@ function createAgentWorkflow() {
     updateAddress: 'updateAddress',
     checkOrder: 'checkOrder',
     searchProducts: 'searchProducts',
-    executeAction: 'executeAction',
   });
 
-  // All action nodes go back to generalChat or END
   workflow.addEdge('cancelOrder', END);
   workflow.addEdge('returnOrder', END);
   workflow.addEdge('updateAddress', END);
   workflow.addEdge('checkOrder', END);
   workflow.addEdge('searchProducts', END);
-  workflow.addEdge('executeAction', END);
 
   return workflow.compile();
 }
 
 /**
  * Run the agent with user message
+ *
+ * FIXED: now returns `handledByAgent` so the calling route knows whether this
+ * was a real agent action (cancel/return/etc, or a confirmation reply) vs a
+ * plain generalChat message that should instead get the richer, DB-personalized
+ * response from chatbot.js's chat() function.
+ *
+ * FIXED: confirmations now persist across requests via `pendingConfirmations`.
  */
 async function runAgent(userId, message) {
   try {
+    const userKey = String(userId);
+
+    // Step 1: Is there a pending confirmation waiting for this user?
+    if (pendingConfirmations.has(userKey)) {
+      const pending = pendingConfirmations.get(userKey);
+      const lower = message.toLowerCase();
+
+      if (lower.includes('yes') || lower.includes('confirm') || lower.includes('sure')) {
+        pendingConfirmations.delete(userKey);
+        try {
+          const result = await pending.tool(pending.params.orderId, pending.params.userId, pending.params.reason);
+          return {
+            success: true,
+            response: result.message,
+            action: pending.action,
+            actionResult: result,
+            handledByAgent: true,
+          };
+        } catch (error) {
+          console.error('[Agent] Error executing confirmed action:', error.message);
+          return {
+            success: false,
+            response: "Sorry, I encountered an error while processing your request. Please try again or contact support.",
+            action: pending.action,
+            actionResult: null,
+            handledByAgent: true,
+          };
+        }
+      }
+
+      if (lower.includes('no') || lower.includes('cancel')) {
+        pendingConfirmations.delete(userKey);
+        return {
+          success: true,
+          response: "Okay, I've cancelled that action. Is there anything else I can help you with?",
+          action: null,
+          actionResult: null,
+          handledByAgent: true,
+        };
+      }
+
+      // Ambiguous reply - ask again instead of silently dropping the pending action
+      return {
+        success: true,
+        response: `I still need your confirmation for that ${pending.action === 'cancelOrder' ? 'cancellation' : 'return'}. Please reply "yes" to confirm or "no" to cancel.`,
+        action: pending.action,
+        actionResult: null,
+        handledByAgent: true,
+      };
+    }
+
+    // Step 2: No pending confirmation - run the normal intent-routing workflow
     const workflow = createAgentWorkflow();
-    
+
     const initialState = {
       messages: [new HumanMessage(message)],
-      userId,
+      userId: userKey,
       currentAction: null,
       actionResult: null,
       needsConfirmation: false,
@@ -436,23 +450,32 @@ async function runAgent(userId, message) {
     };
 
     const result = await workflow.invoke(initialState);
-    
-    // Get the last AI message
     const lastMessage = result.messages[result.messages.length - 1];
-    
+
+    // Step 3: If this turn set up a new confirmation request, persist it for the next request
+    if (result.needsConfirmation && result.confirmationData) {
+      pendingConfirmations.set(userKey, result.confirmationData);
+    }
+
+    // generalChat sets currentAction to null - use that to decide who should answer
+    const handledByAgent = result.currentAction !== null;
+
     return {
       success: true,
       response: lastMessage.content,
       action: result.currentAction,
       actionResult: result.actionResult,
+      handledByAgent,
     };
   } catch (error) {
-    console.error('Agent workflow error:', error);
+    console.error('[Agent] Workflow error:', error.message);
+    console.error('[Agent] Stack:', error.stack);
     return {
       success: false,
-      response: "I'm sorry, I'm having trouble right now. Let me connect you with a human agent who can help you better.",
+      response: null, // Return null to signal fallback to chat()
       action: null,
       actionResult: null,
+      handledByAgent: false, // FIXED: Allow fallback to chat() function
     };
   }
 }

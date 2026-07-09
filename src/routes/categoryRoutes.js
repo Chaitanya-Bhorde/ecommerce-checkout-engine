@@ -6,13 +6,14 @@ const {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  validateCategory,
 } = require('../controllers/categoryController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/', getCategories);
 router.get('/:id', getCategoryById);
-router.post('/', protect, admin, createCategory);
-router.put('/:id', protect, admin, updateCategory);
+router.post('/', protect, admin, validateCategory, createCategory);
+router.put('/:id', protect, admin, validateCategory, updateCategory);
 router.delete('/:id', protect, admin, deleteCategory);
 
 module.exports = router;

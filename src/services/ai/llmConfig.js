@@ -1,56 +1,95 @@
 // AI Configuration - Multiple provider support
-// Supports: Ollama (local), Groq (cloud-fast), OpenAI (paid)
+// Uses DIRECT fetch() for maximum reliability (no SDK dependency issues)
 
 const { ChatOllama } = require("@langchain/ollama");
-const { ChatOpenAI } = require("@langchain/openai");
 
 // Check which AI provider to use
-const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama'; // 'ollama', 'groq', or 'openai'
+const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
 
-// Option 1: Local Ollama (FREE but slower - 3-5 seconds)
-const ollamaLLM = new ChatOllama({
-  baseUrl: "http://localhost:11434",
-  model: "llama3",
-  temperature: 0.7,
-  maxTokens: 200,
-  timeout: 5000,
-});
+console.log(`🤖 AI: Using ${AI_PROVIDER} (${AI_PROVIDER === 'groq' ? 'FAST cloud API' : AI_PROVIDER === 'openai' ? 'PAID cloud API' : 'Local - slower'})`);
+console.log(`[llmConfig] AI_PROVIDER env var: "${process.env.AI_PROVIDER}"`);
+console.log(`[llmConfig] Final AI_PROVIDER value: "${AI_PROVIDER}"`);
 
-// Option 2: Groq API (FREE, ULTRA-FAST - 1-2 seconds)
-// Get FREE API key from: https://console.groq.com/keys
-const groqLLM = new ChatOpenAI({
-  modelName: "llama3-8b-8192",
-  temperature: 0.7,
-  maxTokens: 200,
-  timeout: 5000,
-  apiKey: process.env.GROQ_API_KEY || "your-groq-api-key-here",
-});
+/**
+ * Call Groq API directly using fetch() - no SDK needed!
+ */
+async function callGroq(messages) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey === 'your-groq-api-key-here') {
+    throw new Error('GROQ_API_KEY not configured in .env');
+  }
 
-// Option 3: OpenAI (PAID but very fast)
-const openaiLLM = new ChatOpenAI({
-  modelName: "gpt-3.5-turbo",
-  temperature: 0.7,
-  maxTokens: 200,
-  timeout: 5000,
-  apiKey: process.env.OPENAI_API_KEY || "your-openai-api-key-here",
-});
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 200,
+      }),
+    signal: AbortSignal.timeout(15000),
+  });
 
-// Select LLM based on configuration
-let llm;
-switch (AI_PROVIDER) {
-  case 'groq':
-    llm = groqLLM;
-    console.log('🤖 AI: Using Groq (FAST cloud API)');
-    break;
-  case 'openai':
-    llm = openaiLLM;
-    console.log('🤖 AI: Using OpenAI (PAID cloud API)');
-    break;
-  case 'ollama':
-  default:
-    llm = ollamaLLM;
-    console.log('🤖 AI: Using Ollama (Local - slower)');
-    break;
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+/**
+ * Call the AI LLM directly with messages
+ */
+async function callLLM(messages) {
+  console.log(`[llmConfig] callLLM() called with AI_PROVIDER="${AI_PROVIDER}"`);
+  switch (AI_PROVIDER) {
+    case 'groq':
+      return await callGroq(messages);
+    case 'openai': {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey || apiKey === 'your-openai-api-key-here') {
+        throw new Error('OPENAI_API_KEY not configured in .env');
+      }
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: messages,
+          temperature: 0.7,
+          max_tokens: 200,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+      }
+      const data = await response.json();
+      return data.choices[0].message.content;
+    }
+    case 'ollama':
+    default: {
+      const ollamaLLM = new ChatOllama({
+        baseUrl: "http://localhost:11434",
+        model: "llama3",
+        temperature: 0.7,
+        maxTokens: 200,
+        timeout: 5000,
+      });
+      const response = await ollamaLLM.invoke(messages);
+      return response.content;
+    }
+  }
 }
 
 // LLM Configuration for different use cases
@@ -72,37 +111,24 @@ const llmConfigs = {
   },
 };
 
-// Function to get LLM with specific config
-function getLLM(configType = "support") {
-  const config = llmConfigs[configType] || llmConfigs.support;
-  
-  // Return configured LLM based on provider
-  switch (AI_PROVIDER) {
-    case 'groq':
-      return new ChatOpenAI({
-        modelName: "llama3-8b-8192",
-        temperature: config.temperature,
-        maxTokens: config.maxTokens,
-        timeout: 5000,
-        apiKey: process.env.GROQ_API_KEY,
-      });
-    case 'openai':
-      return new ChatOpenAI({
-        modelName: "gpt-3.5-turbo",
-        temperature: config.temperature,
-        maxTokens: config.maxTokens,
-        timeout: 5000,
-        apiKey: process.env.OPENAI_API_KEY,
-      });
-    default:
-      return new ChatOllama({
-        baseUrl: "http://localhost:11434",
-        model: "llama3",
-        temperature: config.temperature,
-        maxTokens: config.maxTokens,
-        timeout: 5000,
-      });
+// Legacy support for backward compatibility
+const llm = {
+  invoke: async (messages) => {
+    console.log(`[llm] llm.invoke() called, AI_PROVIDER="${AI_PROVIDER}"`);
+    console.log(`[LLM] Invoking ${AI_PROVIDER}...`);
+    const content = await callLLM(messages);
+    console.log(`[LLM] Response received (${content.length} chars)`);
+    return { content };
   }
+};
+
+function getLLM(configType = "support") {
+  return {
+    invoke: async (messages) => {
+      const content = await callLLM(messages);
+      return { content };
+    }
+  };
 }
 
 module.exports = {
@@ -110,4 +136,5 @@ module.exports = {
   getLLM,
   llmConfigs,
   AI_PROVIDER,
+  callLLM,
 };

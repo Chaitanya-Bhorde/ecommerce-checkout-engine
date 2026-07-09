@@ -5,32 +5,24 @@ const categorySchema = new mongoose.Schema(
     name: {
       type: String,
       required: [true, 'Category name is required'],
-      unique: true,
       trim: true,
-      minlength: [2, 'Category name must be at least 2 characters'],
-      maxlength: [50, 'Category name cannot exceed 50 characters'],
+      unique: true,
+      index: true, // Index for category name search
     },
     description: {
       type: String,
-      trim: true,
       maxlength: [500, 'Description cannot exceed 500 characters'],
-    },
-    image: {
-      type: String,
-      default: null,
     },
     isActive: {
       type: Boolean,
       default: true,
+      index: true, // Index for filtering active categories
     },
   },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
+  { timestamps: true }
 );
 
-categorySchema.index({ isActive: 1 });
+// Compound index for active categories sorted by name
+categorySchema.index({ isActive: 1, name: 1 });
 
 module.exports = mongoose.model('Category', categorySchema);

@@ -1,66 +1,109 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import io from 'socket.io-client';
+import { api } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 import './Chat.css';
 
 export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [socket, setSocket] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [currentConversationId, setCurrentConversationId] = useState(() => {
+    // Restore last conversation ID from localStorage
+    return localStorage.getItem('lastConversationId');
+  });
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef(null);
   const { user } = useAuth();
-  const token = localStorage.getItem('token');
+  const navigate = useNavigate();
 
-  // Initialize Socket.io connection
+  // Load conversations on mount
   useEffect(() => {
-    if (token) {
-      const newSocket = io('http://localhost:5000', {
-        auth: { token },
-        transports: ['websocket', 'polling'],
-      });
-
-      newSocket.on('connect', () => {
-        console.log('Socket connected');
-      });
-
-      newSocket.on('receiveMessage', (data) => {
-        setMessages(prev => [...prev, data]);
-        setLoading(false);
-      });
-
-      newSocket.on('typing', (data) => {
-        // Handle typing indicator
-      });
-
-      setSocket(newSocket);
-
-      // Load chat history
-      loadChatHistory();
-
-      return () => {
-        newSocket.close();
-      };
+    if (user) {
+      loadConversations();
     }
-  }, [token]);
+  }, [user]);
+
+  // Save current conversation ID to localStorage whenever it changes
+  useEffect(() => {
+    if (currentConversationId) {
+      localStorage.setItem('lastConversationId', currentConversationId);
+    }
+  }, [currentConversationId]);
+
+  // Load the last conversation from localStorage on mount
+  useEffect(() => {
+    const savedConversationId = localStorage.getItem('lastConversationId');
+    if (savedConversationId && user) {
+      loadConversationMessages(savedConversationId);
+    }
+  }, [user]);
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadChatHistory = async () => {
+  const loadConversations = async () => {
     try {
-      const userId = localStorage.getItem('userId') || 'guest';
-      const res = await fetch(`/api/ai/chat/history/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setMessages(data.history || []);
+      const res = await api.get('/ai/conversations');
+      if (res.data.success) {
+        setConversations(res.data.conversations || []);
       }
     } catch (error) {
-      console.error('Error loading chat history:', error);
+      console.error('Error loading conversations:', error);
+    }
+  };
+
+  const loadConversationMessages = async (conversationId) => {
+    try {
+      setLoading(true);
+      const res = await api.get(`/ai/conversations/${conversationId}/messages`);
+      if (res.data.success) {
+        const messagesWithDates = res.data.messages.map(msg => ({
+          ...msg,
+          timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+        }));
+        setMessages(messagesWithDates);
+        setCurrentConversationId(conversationId);
+      }
+    } catch (error) {
+      console.error('Error loading conversation messages:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createNewConversation = async () => {
+    try {
+      const res = await api.post('/ai/conversations/new');
+      if (res.data.success) {
+        setCurrentConversationId(res.data.conversationId);
+        setMessages([]);
+        // Refresh conversations list
+        loadConversations();
+      }
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+    }
+  };
+
+  const deleteConversation = async (conversationId, e) => {
+    e.stopPropagation();
+    try {
+      const res = await api.delete(`/ai/conversations/${conversationId}`);
+      if (res.data.success) {
+        // Remove from list
+        setConversations(conversations.filter(c => c.id !== conversationId));
+        // Clear current view if this was the active conversation
+        if (currentConversationId === conversationId) {
+          setCurrentConversationId(null);
+          setMessages([]);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
     }
   };
 
@@ -77,25 +120,28 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      // Use HTTP API (more reliable)
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ message: text }),
+      const res = await api.post('/ai/chat', {
+        message: text,
+        conversationId: currentConversationId,
       });
 
-      const data = await response.json();
+      const data = res.data;
 
       if (data.success) {
         const aiMessage = {
           role: 'assistant',
           content: data.response,
           timestamp: new Date(),
+          escalate: data.escalate,
         };
         setMessages(prev => [...prev, aiMessage]);
+        
+        // Update current conversation ID if this was a new conversation
+        if (data.conversationId && !currentConversationId) {
+          setCurrentConversationId(data.conversationId);
+          // Refresh conversations list to show the new conversation
+          loadConversations();
+        }
       } else {
         console.error('API error:', data);
       }
@@ -104,23 +150,6 @@ export default function Chat() {
     } catch (error) {
       console.error('Chat error:', error);
       setLoading(false);
-    }
-  };
-
-  const clearChat = async () => {
-    try {
-      const userId = localStorage.getItem('userId') || 'guest';
-      await fetch('/api/ai/chat/clear', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ userId }),
-      });
-      setMessages([]);
-    } catch (error) {
-      console.error('Error clearing chat:', error);
     }
   };
 
@@ -137,107 +166,174 @@ export default function Chat() {
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const formatRelativeTime = (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    const now = new Date();
+    const diff = now - d;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   return (
     <div className="chat-page">
       <div className="chat-container">
-        {/* Header */}
-        <div className="chat-page-header">
-          <div className="chat-page-header-info">
-            <span className="chat-page-avatar">🤖</span>
-            <div>
-              <h1>AI Assistant</h1>
-              <p>Online • Powered by Llama 3</p>
-            </div>
+        {/* Sidebar */}
+        <div className={`chat-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+          <div className="sidebar-header">
+            <button onClick={createNewConversation} className="new-chat-btn">
+              + New Chat
+            </button>
           </div>
-          <button onClick={clearChat} className="chat-clear-btn">
-            Clear Chat
-          </button>
+          
+          <div className="conversations-list">
+            {conversations.map((conv) => (
+              <div
+                key={conv.id}
+                className={`conversation-item ${currentConversationId === conv.id ? 'active' : ''}`}
+                onClick={() => loadConversationMessages(conv.id)}
+              >
+                <div className="conversation-info">
+                  <div className="conversation-title">{conv.title}</div>
+                  <div className="conversation-time">{formatRelativeTime(conv.updatedAt)}</div>
+                </div>
+                <button
+                  className="delete-conversation-btn"
+                  onClick={(e) => deleteConversation(conv.id, e)}
+                  title="Delete conversation"
+                >
+                  🗑️
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Messages Area */}
-        <div className="chat-messages-container">
-          {messages.length === 0 && (
-            <div className="chat-welcome-message">
-              <h2>Hi! 👋 I'm your AI assistant</h2>
-              <p>How can I help you today?</p>
-              <div className="chat-features-list">
-                <div className="feature-item">
-                  <span className="feature-icon">📦</span>
-                  <span>Track your orders</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-icon">💡</span>
-                  <span>Get product recommendations</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-icon">↩️</span>
-                  <span>Return & refund queries</span>
-                </div>
-                <div className="feature-item">
-                  <span className="feature-icon">💬</span>
-                  <span>24/7 customer support</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`chat-message ${msg.role === 'user' ? 'user-message' : 'ai-message'}`}
+        {/* Main Chat Area */}
+        <div className="chat-main">
+          {/* Header */}
+          <div className="chat-page-header">
+            <button 
+              className="sidebar-toggle-btn"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
             >
-              <div className="message-wrapper">
-                {msg.role === 'assistant' && (
-                  <div className="message-avatar">🤖</div>
-                )}
-                <div className="message-content">
-                  <div className="message-text">{msg.content}</div>
-                  <div className="message-time">{formatTime(msg.timestamp)}</div>
-                </div>
-                {msg.role === 'user' && (
-                  <div className="message-avatar">👤</div>
-                )}
+              {sidebarOpen ? '◀' : '▶'}
+            </button>
+            <div className="chat-page-header-info">
+              <span className="chat-page-avatar">🤖</span>
+              <div>
+                <h1>AI Assistant</h1>
+                <p>Online • Powered by Llama 3</p>
               </div>
             </div>
-          ))}
+            <button 
+              className="chat-close-btn"
+              onClick={() => navigate(-1)}
+              title="Close Chat"
+            >
+              ✕
+            </button>
+          </div>
 
-          {loading && (
-            <div className="chat-message ai-message">
-              <div className="message-wrapper">
-                <div className="message-avatar">🤖</div>
-                <div className="message-content">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+          {/* Messages Area */}
+          <div className="chat-messages-container">
+            {messages.length === 0 && (
+              <div className="chat-welcome-message">
+                <h2>Hi! 👋 I'm your AI assistant</h2>
+                <p>How can I help you today?</p>
+                <div className="chat-features-list">
+                  <div className="feature-item">
+                    <span className="feature-icon">📦</span>
+                    <span>Track your orders</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-icon">💡</span>
+                    <span>Get product recommendations</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-icon">↩️</span>
+                    <span>Return & refund queries</span>
+                  </div>
+                  <div className="feature-item">
+                    <span className="feature-icon">💬</span>
+                    <span>24/7 customer support</span>
                   </div>
                 </div>
               </div>
+            )}
+
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`chat-message ${msg.role === 'user' ? 'user-message' : 'ai-message'}`}
+              >
+                <div className="message-wrapper">
+                  {msg.role === 'assistant' && (
+                    <div className="message-avatar">🤖</div>
+                  )}
+                  <div className="message-content">
+                    <div className="message-text">
+                      {msg.content}
+                      {msg.escalate && (
+                        <div className="escalation-badge">
+                          ⚠️ Escalated to support team
+                        </div>
+                      )}
+                    </div>
+                    <div className="message-time">{formatTime(msg.timestamp)}</div>
+                  </div>
+                  {msg.role === 'user' && (
+                    <div className="message-avatar">👤</div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="chat-message ai-message">
+                <div className="message-wrapper">
+                  <div className="message-avatar">🤖</div>
+                  <div className="message-content">
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <div className="chat-input-container">
+            <div className="chat-input-wrapper">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message..."
+                disabled={loading}
+                className="chat-input"
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={loading || !input.trim()}
+                className="chat-send-btn"
+              >
+                Send
+              </button>
             </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input Area */}
-        <div className="chat-input-container">
-          <div className="chat-input-wrapper">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              disabled={loading}
-              className="chat-input"
-            />
-            <button
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-              className="chat-send-btn"
-            >
-              Send
-            </button>
           </div>
         </div>
       </div>

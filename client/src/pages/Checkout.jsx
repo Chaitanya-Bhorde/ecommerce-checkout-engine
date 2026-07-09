@@ -97,6 +97,14 @@ export default function Checkout({ onCartUpdate }) {
         }
       });
       const order = orderRes.data;
+      
+      // Validate order ID before using it
+      if (!order || !order._id) {
+        setError('Order creation failed - no order ID received');
+        setLoading(false);
+        return;
+      }
+      
       setOrderId(order._id);
 
       if (selectedPayment === 'razorpay') {

@@ -1,7 +1,56 @@
 const Product = require('../models/Product');
+const { body, validationResult } = require('express-validator');
+
+const validateProduct = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Product name is required')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Product name must be between 2 and 100 characters'),
+  body('description')
+    .trim()
+    .notEmpty()
+    .withMessage('Description is required')
+    .isLength({ min: 10, max: 2000 })
+    .withMessage('Description must be between 10 and 2000 characters'),
+  body('price')
+    .isFloat({ min: 0 })
+    .withMessage('Price must be a positive number'),
+  body('stock')
+    .isInt({ min: 0 })
+    .withMessage('Stock must be a non-negative integer'),
+  body('category')
+    .notEmpty()
+    .withMessage('Category is required')
+    .isMongoId()
+    .withMessage('Invalid category ID'),
+  body('images')
+    .optional()
+    .isArray()
+    .withMessage('Images must be an array'),
+  body('images.*')
+    .optional()
+    .isURL()
+    .withMessage('Each image must be a valid URL'),
+  body('isActive')
+    .optional()
+    .isBoolean()
+    .withMessage('isActive must be a boolean')
+];
 
 const createProduct = async (req, res) => {
   try {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
+    }
+
     const product = await Product.create(req.body);
     const populated = await product.populate('category', 'name');
     res.status(201).json(populated);
@@ -99,6 +148,16 @@ const getProductById = async (req, res) => {
 
 const updateProduct = async (req, res) => {
   try {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
+    }
+
     const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
@@ -127,4 +186,11 @@ const deleteProduct = async (req, res) => {
   }
 };
 
-module.exports = { createProduct, getProducts, getProductById, updateProduct, deleteProduct };
+module.exports = { 
+  createProduct, 
+  getProducts, 
+  getProductById, 
+  updateProduct, 
+  deleteProduct,
+  validateProduct 
+};

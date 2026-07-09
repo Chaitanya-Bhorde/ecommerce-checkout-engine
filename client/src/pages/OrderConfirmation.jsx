@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function OrderConfirmation() {
   const { orderId } = useParams();
+  const { t } = useLanguage();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -199,10 +201,18 @@ export default function OrderConfirmation() {
 
         <div className="confirmation-actions">
           <Link to="/orders" className="btn-primary">
-            View All Orders
+            {t('order.viewDetails')}
           </Link>
+          <a 
+            href={`/api/invoice/${order._id}`} 
+            className="btn-secondary"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            📄 {t('order.downloadInvoice')}
+          </a>
           <Link to="/products" className="btn-secondary">
-            Continue Shopping
+            {t('common.search')}
           </Link>
         </div>
       </div>

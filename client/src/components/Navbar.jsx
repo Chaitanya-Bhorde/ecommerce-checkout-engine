@@ -1,8 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { useTheme } from '../contexts/ThemeContext';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { lang, toggleLang, t } = useLanguage();
+  const { darkMode, toggleDarkMode } = useTheme();
 
   return (
     <nav style={{
@@ -10,8 +15,8 @@ export default function Navbar() {
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: '0.9rem 2rem',
-      borderBottom: '1px solid #e5e7eb',
-      background: '#ffffff',
+      borderBottom: '1px solid var(--border-color, #e5e7eb)',
+      background: 'var(--nav-bg, #ffffff)',
       position: 'sticky',
       top: 0,
       zIndex: 100,
@@ -24,38 +29,45 @@ export default function Navbar() {
         textDecoration: 'none',
         letterSpacing: '-0.025em',
       }}>
-        ShopEase
+        {t('app.name')}
       </Link>
 
-      <div style={{ display: 'flex', gap: '1.75rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'center' }}>
         <Link to="/products" style={{
-          color: '#374151',
+          color: 'var(--text-color, #374151)',
           textDecoration: 'none',
           fontSize: '0.95rem',
           fontWeight: '500',
-          transition: 'color 0.2s',
         }}>
-          Products
+          {t('nav.products')}
         </Link>
-        <Link to="/cart" style={{
-          color: '#374151',
-          textDecoration: 'none',
-          fontSize: '0.95rem',
-          fontWeight: '500',
-          position: 'relative',
-          transition: 'color 0.2s',
+
+        {/* Language Toggle */}
+        <button onClick={toggleLang} style={{
+          background: 'var(--btn-bg, #f3f4f6)',
+          border: '1px solid var(--border-color, #e5e7eb)',
+          borderRadius: '8px',
+          padding: '0.35rem 0.7rem',
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+          fontWeight: '600',
+          color: 'var(--text-color, #374151)',
         }}>
-          Cart
-        </Link>
-        <Link to="/orders" style={{
-          color: '#374151',
-          textDecoration: 'none',
-          fontSize: '0.95rem',
-          fontWeight: '500',
-          transition: 'color 0.2s',
+          {lang === 'en' ? 'हिंदी' : 'English'}
+        </button>
+
+        {/* Dark Mode Toggle */}
+        <button onClick={toggleDarkMode} style={{
+          background: 'var(--btn-bg, #f3f4f6)',
+          border: '1px solid var(--border-color, #e5e7eb)',
+          borderRadius: '8px',
+          padding: '0.35rem 0.7rem',
+          cursor: 'pointer',
+          fontSize: '1rem',
         }}>
-          Orders
-        </Link>
+          {darkMode ? '☀️' : '🌙'}
+        </button>
+
         <Link to="/chat" style={{
           color: '#7c3aed',
           textDecoration: 'none',
@@ -66,34 +78,62 @@ export default function Navbar() {
           borderRadius: '8px',
           transition: 'all 0.2s',
         }}>
-          💬 AI Chat
+          💬 {t('nav.chat')}
         </Link>
 
         {user ? (
           <>
-            {user.role === 'admin' && (
+            <NotificationBell />
+            {user.role === 'admin' ? (
               <>
                 <Link to="/admin" style={{
                   color: '#4f46e5',
                   textDecoration: 'none',
-                  fontSize: '0.95rem',
+                  fontSize: '0.9rem',
                   fontWeight: '600',
-                  padding: '0.35rem 0.75rem',
+                  padding: '0.3rem 0.7rem',
                   background: '#eef2ff',
                   borderRadius: '8px',
                 }}>
-                  Admin Panel
+                  {t('admin.dashboard')}
                 </Link>
                 <Link to="/admin/ai-analytics" style={{
                   color: '#7c3aed',
                   textDecoration: 'none',
-                  fontSize: '0.95rem',
+                  fontSize: '0.9rem',
                   fontWeight: '600',
-                  padding: '0.35rem 0.75rem',
+                  padding: '0.3rem 0.7rem',
                   background: '#f5f3ff',
                   borderRadius: '8px',
                 }}>
-                  AI Analytics
+                  {t('admin.analytics')}
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/wishlist" style={{
+                  color: '#374151',
+                  textDecoration: 'none',
+                  fontSize: '0.95rem',
+                  fontWeight: '500',
+                }}>
+                  ❤️ {t('product.addToWishlist')}
+                </Link>
+                <Link to="/cart" style={{
+                  color: '#374151',
+                  textDecoration: 'none',
+                  fontSize: '0.95rem',
+                  fontWeight: '500',
+                }}>
+                  {t('nav.cart')}
+                </Link>
+                <Link to="/orders" style={{
+                  color: '#374151',
+                  textDecoration: 'none',
+                  fontSize: '0.95rem',
+                  fontWeight: '500',
+                }}>
+                  {t('nav.orders')}
                 </Link>
               </>
             )}
@@ -105,7 +145,7 @@ export default function Navbar() {
               background: '#f3f4f6',
               borderRadius: '9999px',
             }}>
-              Hi, {user.name}
+              {t('nav.hello')}, {user.name}
             </span>
             <button
               onClick={logout}
@@ -119,7 +159,7 @@ export default function Navbar() {
                 borderRadius: '8px',
               }}
             >
-              Logout
+              {t('nav.logout')}
             </button>
           </>
         ) : (
@@ -129,7 +169,7 @@ export default function Navbar() {
               textDecoration: 'none',
               fontSize: '0.95rem',
               fontWeight: '500',
-            }}>Login</Link>
+            }}>{t('nav.login')}</Link>
             <Link to="/register" style={{
               padding: '0.5rem 1.1rem',
               background: '#4f46e5',
@@ -139,7 +179,7 @@ export default function Navbar() {
               fontSize: '0.9rem',
               fontWeight: '500',
             }}>
-              Register
+              {t('nav.register')}
             </Link>
           </>
         )}

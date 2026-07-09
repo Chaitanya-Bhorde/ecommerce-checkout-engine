@@ -130,7 +130,10 @@ export default function ChatWidget() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ 
+          message: text,
+          userId: userId // Send the actual user ID so AI can personalize response
+        }),
       });
       
       const data = await response.json();

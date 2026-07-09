@@ -2,7 +2,70 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Cart = require('../models/Cart');
+const User = require('../models/User');
 const Idempotency = require('../models/Idempotency');
+const Notification = require('../models/Notification');
+const { body, validationResult } = require('express-validator');
+
+const validateOrderCreation = [
+  body('shippingAddress')
+    .isObject()
+    .withMessage('Shipping address is required'),
+  body('shippingAddress.address')
+    .trim()
+    .notEmpty()
+    .withMessage('Address is required')
+    .isLength({ min: 5, max: 200 })
+    .withMessage('Address must be between 5 and 200 characters'),
+  body('shippingAddress.city')
+    .trim()
+    .notEmpty()
+    .withMessage('City is required')
+    .isLength({ min: 2, max: 50 })
+    .withMessage('City must be between 2 and 50 characters'),
+  body('shippingAddress.state')
+    .trim()
+    .notEmpty()
+    .withMessage('State is required')
+    .isLength({ min: 2, max: 50 })
+    .withMessage('State must be between 2 and 50 characters'),
+  body('shippingAddress.zipCode')
+    .trim()
+    .notEmpty()
+    .withMessage('Zip code is required')
+    .isLength({ min: 3, max: 10 })
+    .withMessage('Zip code must be between 3 and 10 characters'),
+  body('shippingAddress.country')
+    .trim()
+    .notEmpty()
+    .withMessage('Country is required')
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Country must be between 2 and 50 characters'),
+  body('shippingAddress.phone')
+    .trim()
+    .notEmpty()
+    .withMessage('Phone number is required')
+    .isMobilePhone()
+    .withMessage('Please provide a valid phone number'),
+  body('paymentMethod')
+    .optional()
+    .isIn(['razorpay', 'cod'])
+    .withMessage('Payment method must be either razorpay or cod')
+];
+
+const validateOrderStatus = [
+  body('status')
+    .trim()
+    .notEmpty()
+    .withMessage('Status is required')
+    .isIn(['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'received', 'cancelled', 'refunded'])
+    .withMessage('Invalid status value'),
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note must be less than 500 characters')
+];
 
 const createOrder = async (req, res) => {
   const idempotencyKey = req.headers['idempotency-key'];
@@ -106,6 +169,22 @@ const createOrder = async (req, res) => {
     session.endSession();
 
     const populatedOrder = await Order.findById(order._id).populate('items.product', 'name price images');
+
+    // Send notification to admin about new order
+    try {
+      const adminUsers = await User.find({ role: 'admin' });
+      for (const admin of adminUsers) {
+        await Notification.create({
+          userId: admin._id,
+          type: 'order_placed',
+          title: 'New Order Received',
+          message: `Order #${order._id.toString().slice(-8)} placed by ${req.user.name} for ₹${total}`,
+          data: { orderId: order._id, userId: req.user._id, userName: req.user.name, total },
+        });
+      }
+    } catch (notifError) {
+      console.error('Error creating order notification:', notifError);
+    }
 
     res.status(201).json(populatedOrder);
   } catch (error) {
@@ -212,6 +291,16 @@ const getAllOrders = async (req, res) => {
 
 const updateOrderStatus = async (req, res) => {
   try {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array() 
+      });
+    }
+
     const { status, note } = req.body;
 
     const validTransitions = {
@@ -262,6 +351,22 @@ const updateOrderStatus = async (req, res) => {
     });
 
     await order.save();
+
+    // Send notification to customer about order status update
+    try {
+      const customer = await User.findById(order.user);
+      if (customer) {
+        await Notification.create({
+          userId: order.user,
+          type: 'order_shipped',
+          title: `Order Status Updated`,
+          message: `Your order #${order._id.toString().slice(-8)} has been updated to: ${status}`,
+          data: { orderId: order._id, status, note },
+        });
+      }
+    } catch (notifError) {
+      console.error('Error creating status update notification:', notifError);
+    }
 
     res.json(order);
   } catch (error) {
@@ -322,4 +427,13 @@ const cancelOrder = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getOrders, getOrderById, getAllOrders, updateOrderStatus, cancelOrder };
+module.exports = { 
+  createOrder, 
+  getOrders, 
+  getOrderById, 
+  getAllOrders, 
+  updateOrderStatus, 
+  cancelOrder,
+  validateOrderCreation,
+  validateOrderStatus
+};

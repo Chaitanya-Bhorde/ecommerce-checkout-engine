@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../services/api';
 import './AdminAIAnalytics.css';
 
 export default function AdminAIAnalytics() {
@@ -17,14 +17,9 @@ export default function AdminAIAnalytics() {
 
   const fetchAnalytics = async () => {
     try {
-      const token = localStorage.getItem('token');
       const [analyticsRes, satisfactionRes] = await Promise.all([
-        axios.get(`/api/ai/analytics/dashboard?days=${timeRange}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        axios.get(`/api/ai/analytics/satisfaction?days=${timeRange}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        api.get(`/ai/analytics/dashboard?days=${timeRange}`),
+        api.get(`/ai/analytics/satisfaction?days=${timeRange}`),
       ]);
 
       setAnalytics(analyticsRes.data.analytics);
@@ -39,10 +34,7 @@ export default function AdminAIAnalytics() {
 
   const fetchRealTimeStats = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/ai/analytics/realtime', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api.get('/ai/analytics/realtime');
       setRealTimeStats(res.data.stats);
     } catch (error) {
       console.error('Error fetching real-time stats:', error);
