@@ -1,18 +1,19 @@
 /* Chat Page Styles - Modern Light Theme */
 
 .chat-page {
-  min-height: 100vh;
+  flex: 1;
   background: #f3f4f6;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  min-height: calc(100vh - 80px);
 }
 
 .chat-container {
   width: 100%;
   max-width: 1400px;
-  height: 90vh;
+  height: calc(90vh - 40px);
   background: white;
   border-radius: 16px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
@@ -218,23 +219,6 @@
   margin: 5px 0 0 0;
   font-size: 14px;
   color: #6b7280;
-}
-
-.chat-clear-btn {
-  padding: 10px 20px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  color: #374151;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.chat-clear-btn:hover {
-  background: #e5e7eb;
-  transform: translateY(-2px);
 }
 
 /* Messages Container */
@@ -459,10 +443,92 @@
   flex-shrink: 0;
 }
 
+.selected-file-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.remove-file-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.remove-file-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.upload-file-btn {
+  margin-left: auto;
+  padding: 6px 14px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-file-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.upload-file-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .chat-input-wrapper {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.chat-attach-btn {
+  padding: 14px 16px;
+  background: #f9fafb;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  border-radius: 24px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-attach-btn:hover:not(:disabled) {
+  background: #eef2ff;
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.chat-attach-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-input {
@@ -514,10 +580,11 @@
 @media (max-width: 768px) {
   .chat-page {
     padding: 10px;
+    min-height: calc(100vh - 60px);
   }
 
   .chat-container {
-    height: 100vh;
+    height: calc(100vh - 80px);
     border-radius: 0;
     max-width: 100%;
   }

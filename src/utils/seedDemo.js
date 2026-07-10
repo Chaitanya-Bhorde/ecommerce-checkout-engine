@@ -723,13 +723,327 @@ const seedDemo = async () => {
       },
     ]);
 
-    console.log('✓ Created 55 products across 6 categories');
+    // Add more products to reach 75 total
+    const moreProducts = await Product.insertMany([
+      // Electronics - 5 more
+      {
+        name: 'Wireless Charging Pad',
+        description: 'Fast wireless charger compatible with all Qi-enabled devices',
+        price: 1299,
+        stock: 95,
+        category: categories[0]._id,
+        images: [
+          'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=800&q=80',
+          'https://images.unsplash.com/photo-1622782914767-404fb9ab3f57?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Bluetooth Keyboard',
+        description: 'Slim wireless keyboard with multi-device connectivity',
+        price: 1899,
+        stock: 65,
+        category: categories[0]._id,
+        images: [
+          'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800&q=80',
+          'https://images.unsplash.com/photo-1595225476474-87563907a212?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Monitor Stand with USB Hub',
+        description: 'Ergonomic monitor riser with built-in USB 3.0 ports',
+        price: 2199,
+        stock: 55,
+        category: categories[0]._id,
+        images: [
+          'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=800&q=80',
+          'https://images.unsplash.com/photo-1611186871348-b1c6962cf3b4?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Noise Cancelling Earbuds',
+        description: 'Compact earbuds with active noise cancellation',
+        price: 2999,
+        stock: 70,
+        category: categories[0]._id,
+        images: [
+          'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80',
+          'https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Smart LED Bulb Pack',
+        description: 'Pack of 4 WiFi-enabled smart bulbs with color changing',
+        price: 1599,
+        stock: 85,
+        category: categories[0]._id,
+        images: [
+          'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=800&q=80',
+          'https://images.unsplash.com/photo-1507473885765-e6ed057ab6fb?w=800&q=80',
+        ],
+        isActive: true,
+      },
+
+      // Clothing - 5 more
+      {
+        name: 'Wool Sweater',
+        description: 'Cozy merino wool sweater for cold weather',
+        price: 1899,
+        stock: 50,
+        category: categories[1]._id,
+        images: [
+          'https://images.unsplash.com/photo-1434389677669-e08b4cda3a38?w=800&q=80',
+          'https://images.unsplash.com/photo-1620799140408-ed5341c243ca?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Linen Shirt',
+        description: 'Breathable linen shirt perfect for summer',
+        price: 1299,
+        stock: 70,
+        category: categories[1]._id,
+        images: [
+          'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800&q=80',
+          'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Athletic Leggings',
+        description: 'High-waisted workout leggings with moisture-wicking fabric',
+        price: 999,
+        stock: 120,
+        category: categories[1]._id,
+        images: [
+          'https://images.unsplash.com/photo-1506629082955-511b1aa562c8?w=800&q=80',
+          'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Denim Jacket',
+        description: 'Classic denim jacket with modern fit',
+        price: 2299,
+        stock: 45,
+        category: categories[1]._id,
+        images: [
+          'https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=800&q=80',
+          'https://images.unsplash.com/photo-1544923246-77307dd270cb?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Cotton Socks Pack',
+        description: 'Pack of 6 premium cotton socks',
+        price: 399,
+        stock: 200,
+        category: categories[1]._id,
+        images: [
+          'https://images.unsplash.com/photo-1586350977771-b3b0abd50c82?w=800&q=80',
+          'https://images.unsplash.com/photo-1562183241-b936e665817b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+
+      // Home & Garden - 5 more
+      {
+        name: 'Bamboo Cutting Board',
+        description: 'Eco-friendly bamboo cutting board with juice grooves',
+        price: 599,
+        stock: 90,
+        category: categories[2]._id,
+        images: [
+          'https://images.unsplash.com/photo-1594226801341-41427b4e5c22?w=800&q=80',
+          'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Stainless Steel Cookware Set',
+        description: '10-piece stainless steel cookware set with glass lids',
+        price: 4999,
+        stock: 30,
+        category: categories[2]._id,
+        images: [
+          'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=800&q=80',
+          'https://images.unsplash.com/photo-1584305574647-0cc949a2bb9f?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Memory Foam Pillow',
+        description: 'Ergonomic memory foam pillow for better sleep',
+        price: 899,
+        stock: 110,
+        category: categories[2]._id,
+        images: [
+          'https://images.unsplash.com/photo-1584100936595-c0654b55a2e2?w=800&q=80',
+          'https://images.unsplash.com/photo-1592789705501-f9ae4278a9c9?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Robot Vacuum Cleaner',
+        description: 'Smart robot vacuum with app control and scheduling',
+        price: 7999,
+        stock: 25,
+        category: categories[2]._id,
+        images: [
+          'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=800&q=80',
+          'https://images.unsplash.com/photo-1584305574647-0cc949a2bb9f?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Indoor Plant Set',
+        description: 'Set of 3 small indoor plants with decorative pots',
+        price: 1299,
+        stock: 40,
+        category: categories[2]._id,
+        images: [
+          'https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=800&q=80',
+          'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+
+      // Sports & Fitness - 5 more
+      {
+        name: 'Yoga Block Set',
+        description: 'Set of 2 high-density foam yoga blocks',
+        price: 499,
+        stock: 100,
+        category: categories[3]._id,
+        images: [
+          'https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=800&q=80',
+          'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Resistance Tubes Set',
+        description: 'Set of 5 resistance tubes with handles and door anchor',
+        price: 799,
+        stock: 85,
+        category: categories[3]._id,
+        images: [
+          'https://images.unsplash.com/photo-1598289431512-b97b0917affc?w=800&q=80',
+          'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Fitness Tracker Band',
+        description: 'Water-resistant fitness tracker with heart rate monitor',
+        price: 1999,
+        stock: 60,
+        category: categories[3]._id,
+        images: [
+          'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80',
+          'https://images.unsplash.com/photo-1546868871-af0de0ae72be?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Pull-Up Bar',
+        description: 'Doorway pull-up bar with multiple grip positions',
+        price: 1499,
+        stock: 45,
+        category: categories[3]._id,
+        images: [
+          'https://images.unsplash.com/photo-1638536532686-d610adfc8e5c?w=800&q=80',
+          'https://images.unsplash.com/photo-1586401100295-7aaf54e1a5f6?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Yoga Towel',
+        description: 'Non-slip yoga towel with moisture-wicking material',
+        price: 599,
+        stock: 130,
+        category: categories[3]._id,
+        images: [
+          'https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=800&q=80',
+          'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800&q=80',
+        ],
+        isActive: true,
+      },
+
+      // Beauty & Health - 5 more
+      {
+        name: 'Face Mask Pack',
+        description: 'Variety pack of 12 sheet masks for different skin needs',
+        price: 599,
+        stock: 150,
+        category: categories[5]._id,
+        images: [
+          'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800&q=80',
+          'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Hair Dryer Professional',
+        description: 'Ionic hair dryer with multiple heat settings',
+        price: 2499,
+        stock: 55,
+        category: categories[5]._id,
+        images: [
+          'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=800&q=80',
+          'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Makeup Brush Set',
+        description: 'Professional 12-piece makeup brush set with case',
+        price: 1299,
+        stock: 75,
+        category: categories[5]._id,
+        images: [
+          'https://images.unsplash.com/photo-1522335789203-aabd20f1a6f3?w=800&q=80',
+          'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Body Lotion',
+        description: 'Moisturizing body lotion with shea butter and vitamin E',
+        price: 449,
+        stock: 140,
+        category: categories[5]._id,
+        images: [
+          'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800&q=80',
+          'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=800&q=80',
+        ],
+        isActive: true,
+      },
+      {
+        name: 'Lipstick Collection',
+        description: 'Set of 6 long-lasting matte lipsticks in popular shades',
+        price: 899,
+        stock: 95,
+        category: categories[5]._id,
+        images: [
+          'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=800&q=80',
+          'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=800&q=80',
+        ],
+        isActive: true,
+      },
+    ]);
+
+    console.log('✓ Created 20 additional products');
+    console.log('✓ Total: 75 products across 6 categories');
 
     console.log('\n✅ Demo data seeded successfully!');
     console.log('\n📋 Test Accounts:');
     console.log('  Admin: admin@ecommerce.com / Admin@123');
     console.log('  Customer: customer@example.com / customer123');
-    console.log('\n🛍️  Products: 55 products across 6 categories');
+    console.log('\n🛍️  Products: 75 products across 6 categories');
     console.log('📂 Categories: 6 categories (all active except Books)');
     console.log('\n💡 Tip: Run "npm run seed:demo" to reset and reseed data');
 

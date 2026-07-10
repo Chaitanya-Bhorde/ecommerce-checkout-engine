@@ -154,6 +154,15 @@ export default function Orders() {
                       <Link to={`/order-confirmation/${order._id}`} className="btn-link">
                         View Details
                       </Link>
+                      <a
+                        href={`/api/invoice/${order._id}`}
+                        className="btn-link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#10b981' }}
+                      >
+                        📄 Receipt
+                      </a>
                       {['pending', 'confirmed'].includes(order.status) && (
                         <button
                           onClick={() => handleCancelOrder(order._id)}

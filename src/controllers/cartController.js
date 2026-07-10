@@ -31,7 +31,7 @@ const addToCart = async (req, res) => {
       return res.status(400).json({ message: 'Product is not available' });
     }
 
-    if (!product.isInStock(quantity)) {
+    if (product.stock < quantity) {
       return res.status(400).json({ message: 'Insufficient stock' });
     }
 
@@ -58,7 +58,7 @@ const addToCart = async (req, res) => {
     if (existingItemIndex > -1) {
       const newQuantity = cart.items[existingItemIndex].quantity + quantity;
 
-      if (!product.isInStock(newQuantity)) {
+      if (product.stock < newQuantity) {
         return res.status(400).json({ message: 'Insufficient stock' });
       }
 
@@ -101,7 +101,7 @@ const updateCartItem = async (req, res) => {
     }
 
     const product = await Product.findById(item.product);
-    if (!product || !product.isInStock(quantity)) {
+    if (!product || product.stock < quantity) {
       return res.status(400).json({ message: 'Insufficient stock' });
     }
 

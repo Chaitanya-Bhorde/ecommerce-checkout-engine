@@ -1,7 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { NotificationProvider } from './contexts/NotificationContext';
-import { LanguageProvider } from './contexts/LanguageContext';
-import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -30,10 +28,9 @@ import ResetPassword from './pages/ResetPassword';
 export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', display: 'flex', flexDirection: 'column' }}>
-      <LanguageProvider>
-      <ThemeProvider>
       <NotificationProvider>
         <Navbar />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <Routes>
         <Route path="/" element={<Navigate to="/products" replace />} />
         <Route path="/login" element={<Login />} />
@@ -120,10 +117,9 @@ export default function App() {
           </AdminRoute>
         } />
       </Routes>
+        </div>
         <Footer />
       </NotificationProvider>
-      </ThemeProvider>
-      </LanguageProvider>
     </div>
   );
 }

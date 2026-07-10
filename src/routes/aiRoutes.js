@@ -6,6 +6,38 @@ const { protect } = require('../middleware/authMiddleware');
 const Conversation = require('../models/Conversation');
 const ChatMessage = require('../models/ChatMessage');
 const SupportTicket = require('../models/SupportTicket');
+const Order = require('../models/Order');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/receipts';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'receipt-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPG, PNG and PDF are allowed.'));
+    }
+  }
+});
 
 // @route   POST /api/ai/chat
 // @desc    Send message to AI chatbot
@@ -433,6 +465,114 @@ router.get('/admin/vector-store/stats', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get vector store stats',
+    });
+  }
+});
+
+// @route   POST /api/ai/upload-receipt
+// @desc    Upload receipt image/PDF and extract order details
+// @access  Private
+router.post('/upload-receipt', protect, upload.single('receipt'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a receipt file',
+      });
+    }
+
+    const { conversationId } = req.body;
+    const userId = String(req.user._id);
+    const userName = req.user.name || 'Customer';
+
+    // Save file path (in production, you would use OCR here to extract order details)
+    const filePath = req.file.path;
+    const fileName = req.file.originalname;
+
+    // TODO: Add OCR processing here to extract order ID from receipt
+    // For now, we'll simulate finding an order from the receipt
+    // In production, use Tesseract.js or similar OCR library
+    
+    // Try to find the most recent order for this user
+    const recentOrder = await Order.findOne({ user: userId })
+      .sort({ createdAt: -1 })
+      .populate('items.product', 'name price images');
+
+    let orderDetails = null;
+    let message = 'Receipt uploaded successfully! ';
+
+    if (recentOrder) {
+      orderDetails = {
+        orderId: recentOrder._id,
+        orderNumber: '#' + recentOrder._id.slice(-8).toUpperCase(),
+        date: recentOrder.createdAt,
+        total: recentOrder.total,
+        status: recentOrder.status,
+        items: recentOrder.items.map(item => ({
+          name: item.product?.name || 'Product',
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      };
+      message += `I found your recent order #${recentOrder._id.slice(-8).toUpperCase()}. How can I help you with this order?`;
+    } else {
+      message += 'I could not find any order associated with this receipt. Please provide your order ID or ask me anything else.';
+    }
+
+    // Create or update conversation
+    let currentConversationId = conversationId;
+    if (!currentConversationId) {
+      const conversation = await Conversation.create({
+        userId: userId,
+        title: `Receipt Upload - ${fileName}`,
+      });
+      currentConversationId = conversation._id;
+    }
+
+    // Save user message with file
+    await ChatMessage.create({
+      conversationId: currentConversationId,
+      userId: userId,
+      role: 'user',
+      content: `📎 Uploaded receipt: ${fileName}`,
+      metadata: {
+        hasFile: true,
+        fileName: fileName,
+        filePath: filePath,
+      },
+    });
+
+    // Save AI response
+    await ChatMessage.create({
+      conversationId: currentConversationId,
+      userId: userId,
+      role: 'assistant',
+      content: message,
+      metadata: {
+        orderDetails: orderDetails,
+      },
+    });
+
+    // Update conversation timestamp
+    await Conversation.findByIdAndUpdate(currentConversationId, { updatedAt: Date.now() });
+
+    res.json({
+      success: true,
+      message: message,
+      conversationId: currentConversationId,
+      orderDetails: orderDetails,
+    });
+  } catch (error) {
+    console.error('Receipt upload error:', error);
+    
+    // Clean up uploaded file if error occurred
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload receipt. Please try again.',
     });
   }
 });

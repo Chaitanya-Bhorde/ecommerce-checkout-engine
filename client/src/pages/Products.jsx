@@ -199,7 +199,7 @@ export default function Products() {
         <>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '1.5rem',
           }}>
             {products.map((product) => (

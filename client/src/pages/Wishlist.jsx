@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
-import { useLanguage } from '../contexts/LanguageContext';
 
 export default function Wishlist() {
   const [wishlist, setWishlist] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { t } = useLanguage();
 
   useEffect(() => {
     fetchWishlist();
@@ -46,7 +44,7 @@ export default function Wishlist() {
       <div className="wishlist-page">
         <div className="container">
           <div className="loading-spinner"></div>
-          <p className="loading-text">{t('common.loading')}</p>
+          <p className="loading-text">Loading...</p>
         </div>
       </div>
     );
@@ -57,7 +55,7 @@ export default function Wishlist() {
   return (
     <div className="wishlist-page">
       <div className="container">
-        <h1 className="page-title">❤️ {t('product.addToWishlist')}</h1>
+        <h1 className="page-title">❤️ My Wishlist</h1>
 
         {items.length === 0 ? (
           <div className="empty-state">

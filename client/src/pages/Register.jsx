@@ -17,7 +17,13 @@ export default function Register() {
       await register(form.name, form.email, form.password);
       navigate('/products');
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      const errorData = err.response?.data;
+      if (errorData?.errors && Array.isArray(errorData.errors)) {
+        const errorMessages = errorData.errors.map(e => e.msg).join(', ');
+        setError(errorMessages);
+      } else {
+        setError(errorData?.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }

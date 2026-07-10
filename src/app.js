@@ -35,11 +35,13 @@ app.use(compression());
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = [
+  const allowedOrigins = [
       process.env.CLIENT_URL,
       'http://localhost:5173',
+      'http://localhost:5174',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
       'http://127.0.0.1:3000'
     ].filter(Boolean);
     
@@ -67,7 +69,7 @@ const generalLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login/register requests per windowMs
+  max: 50, // Limit each IP to 50 login/register requests per windowMs (increased for development)
   message: {
     success: false,
     message: 'Too many authentication attempts, please try again after 15 minutes.'

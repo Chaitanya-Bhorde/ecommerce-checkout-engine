@@ -14,7 +14,10 @@ export default function Chat() {
     return localStorage.getItem('lastConversationId');
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -36,7 +39,18 @@ export default function Chat() {
   useEffect(() => {
     const savedConversationId = localStorage.getItem('lastConversationId');
     if (savedConversationId && user) {
-      loadConversationMessages(savedConversationId);
+      // Verify the conversation belongs to this user
+      const verifyAndLoad = async () => {
+        try {
+          await loadConversationMessages(savedConversationId);
+        } catch (error) {
+          // If 403 or any error, clear the saved conversation
+          console.log('Could not load saved conversation, clearing...');
+          localStorage.removeItem('lastConversationId');
+          setCurrentConversationId(null);
+        }
+      };
+      verifyAndLoad();
     }
   }, [user]);
 
@@ -70,6 +84,7 @@ export default function Chat() {
       }
     } catch (error) {
       console.error('Error loading conversation messages:', error);
+      throw error; // Re-throw so the caller can handle it
     } finally {
       setLoading(false);
     }
@@ -157,6 +172,87 @@ export default function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size must be less than 5MB');
+        return;
+      }
+      // Check file type
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+      if (!allowedTypes.includes(file.type)) {
+        alert('Please upload an image (JPG, PNG) or PDF file');
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) return;
+
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append('receipt', selectedFile);
+    if (currentConversationId) {
+      formData.append('conversationId', currentConversationId);
+    }
+
+    try {
+      const res = await api.post('/ai/upload-receipt', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (res.data.success) {
+        // Add user message with file
+        const userMessage = {
+          role: 'user',
+          content: `📎 Uploaded receipt: ${selectedFile.name}`,
+          timestamp: new Date(),
+          hasFile: true,
+          fileName: selectedFile.name,
+        };
+        setMessages(prev => [...prev, userMessage]);
+
+        // Add AI response
+        const aiMessage = {
+          role: 'assistant',
+          content: res.data.message || 'Receipt uploaded successfully! I can see your order details. How can I help you with this order?',
+          timestamp: new Date(),
+          orderDetails: res.data.orderDetails,
+        };
+        setMessages(prev => [...prev, aiMessage]);
+
+        // Update conversation ID if new
+        if (res.data.conversationId && !currentConversationId) {
+          setCurrentConversationId(res.data.conversationId);
+          loadConversations();
+        }
+
+        setSelectedFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading receipt:', error);
+      alert('Failed to upload receipt. Please try again.');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const removeSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -316,19 +412,49 @@ export default function Chat() {
 
           {/* Input Area */}
           <div className="chat-input-container">
+            {/* Selected File Preview */}
+            {selectedFile && (
+              <div className="selected-file-preview">
+                <span>📎 {selectedFile.name}</span>
+                <button onClick={removeSelectedFile} className="remove-file-btn">✕</button>
+                <button 
+                  onClick={handleFileUpload} 
+                  disabled={uploadingFile}
+                  className="upload-file-btn"
+                >
+                  {uploadingFile ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            )}
+            
             <div className="chat-input-wrapper">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="image/jpeg,image/png,image/jpg,application/pdf"
+                style={{ display: 'none' }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="chat-attach-btn"
+                title="Upload receipt"
+                disabled={loading || uploadingFile}
+              >
+                📎
+              </button>
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
-                disabled={loading}
+                placeholder="Type your message... (or upload receipt)"
+                disabled={loading || uploadingFile}
                 className="chat-input"
               />
               <button
                 onClick={() => sendMessage()}
-                disabled={loading || !input.trim()}
+                disabled={loading || uploadingFile || !input.trim()}
                 className="chat-send-btn"
               >
                 Send
