@@ -358,7 +358,8 @@ CURRENT USER:
     // ALWAYS show all products regardless of match
     systemPrompt += `\nCOMPLETE PRODUCT CATALOG (ALL ${stats.totalProducts} PRODUCTS - THIS IS THE FULL LIST):\n`;
     recommendations.forEach((p, i) => { 
-      systemPrompt += `- ${p.name} | ₹${p.price} | Category: ${p.category}\n`; 
+      const stockStatus = p.stock > 0 ? `${p.stock} in stock` : 'Out of stock';
+      systemPrompt += `- ${p.name} | ₹${p.price} | Category: ${p.category} | Stock: ${stockStatus}\n`; 
     });
     systemPrompt += `\n`;
 
