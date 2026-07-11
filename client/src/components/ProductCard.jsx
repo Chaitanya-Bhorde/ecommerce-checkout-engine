@@ -1,8 +1,9 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function ProductCard({ product, onAddToCart, onToggleWishlist, isInWishlist }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const image = product.images && product.images.length > 0
     ? product.images[0]
     : 'https://via.placeholder.com/400x300?text=No+Image';
@@ -108,7 +109,14 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
       <div style={{ padding: '0 1.1rem 1.1rem', display: 'flex', gap: '0.5rem' }}>
         {onAddToCart && (
           <button
-            onClick={() => onAddToCart(product._id)}
+            onClick={() => {
+              if (!user) {
+                alert('Please login to add items to cart');
+                navigate('/login');
+                return;
+              }
+              onAddToCart(product._id);
+            }}
             disabled={!inStock}
             style={{
               flex: 1,
