@@ -28,7 +28,8 @@ export default function AdminProducts() {
     category: '',
     newCategory: '',
     stock: '',
-    images: [],
+    uploadedImages: [], // Base64 uploaded images
+    imageUrls: [], // URL images
     isActive: true,
   });
 
@@ -69,26 +70,35 @@ export default function AdminProducts() {
       // If admin selected "Add New Category", create it first
       if (categoryId === '__new__' && formData.newCategory.trim()) {
         try {
+          console.log('Creating new category:', formData.newCategory.trim());
           const newCategoryRes = await api.post('/categories', {
             name: formData.newCategory.trim(),
             isActive: true,
           });
+          console.log('Category created:', newCategoryRes.data);
           categoryId = newCategoryRes.data._id;
           // Refresh categories list
           const categoriesRes = await api.get('/categories?isActive=true');
           setCategories(categoriesRes.data);
         } catch (err) {
-          alert('Failed to create category. Please try again.');
+          console.error('Category creation error:', err);
+          const errorMsg = err.response?.data?.message || err.message || 'Please try again.';
+          alert('Failed to create category: ' + errorMsg);
           return;
         }
       }
 
+      // Combine uploaded images and URL images
+      const allImages = [...formData.uploadedImages, ...formData.imageUrls].filter(url => url.trim() !== '');
+
       const productData = {
-        ...formData,
+        name: formData.name,
+        description: formData.description,
         price: Number(formData.price),
         stock: Number(formData.stock),
         category: categoryId,
-        images: formData.images.filter(url => url.trim() !== ''),
+        images: allImages,
+        isActive: formData.isActive,
       };
 
       if (editingProduct) {
@@ -108,7 +118,8 @@ export default function AdminProducts() {
         category: '',
         newCategory: '',
         stock: '',
-        images: [],
+        uploadedImages: [],
+        imageUrls: [],
         isActive: true,
       });
       fetchProducts();
@@ -120,13 +131,29 @@ export default function AdminProducts() {
   const handleEdit = (product) => {
     console.log('Editing product:', product._id, product.name);
     setEditingProduct(product);
+    // Separate uploaded images (base64) from URL images
+    const uploadedImages = [];
+    const imageUrls = [];
+    
+    if (product.images && product.images.length > 0) {
+      product.images.forEach(img => {
+        if (img.startsWith('data:image')) {
+          uploadedImages.push(img);
+        } else {
+          imageUrls.push(img);
+        }
+      });
+    }
+    
     setFormData({
       name: product.name,
       description: product.description || '',
       price: product.price.toString(),
       category: product.category?._id || '',
+      newCategory: '',
       stock: product.stock.toString(),
-      images: product.images || [],
+      uploadedImages: uploadedImages,
+      imageUrls: imageUrls,
       isActive: product.isActive,
     });
     setShowModal(true);
@@ -210,7 +237,7 @@ export default function AdminProducts() {
       const resizedImages = await Promise.all(files.map(file => resizeImage(file)));
       setFormData({
         ...formData,
-        images: [...formData.images, ...resizedImages]
+        uploadedImages: [...formData.uploadedImages, ...resizedImages]
       });
     } catch (error) {
       console.error('Error processing images:', error);
@@ -218,9 +245,19 @@ export default function AdminProducts() {
     }
   };
 
-  const removeImage = (index) => {
-    const newImages = formData.images.filter((_, i) => i !== index);
-    setFormData({ ...formData, images: newImages });
+  const removeUploadedImage = (index) => {
+    const newImages = formData.uploadedImages.filter((_, i) => i !== index);
+    setFormData({ ...formData, uploadedImages: newImages });
+  };
+
+  const removeImageUrl = (index) => {
+    const newUrls = formData.imageUrls.filter((_, i) => i !== index);
+    setFormData({ ...formData, imageUrls: newUrls });
+  };
+
+  // Get all images for display
+  const getAllImages = () => {
+    return [...formData.uploadedImages, ...formData.imageUrls];
   };
 
   if (loading) {
@@ -252,7 +289,8 @@ export default function AdminProducts() {
                 category: '',
                 newCategory: '',
                 stock: '',
-                images: [],
+                uploadedImages: [],
+                imageUrls: [],
                 isActive: true,
               });
               setShowModal(true);
@@ -418,28 +456,31 @@ export default function AdminProducts() {
                       <p className="upload-hint">Supports: JPG, PNG, WEBP (Max 5MB each)</p>
                     </div>
                     
-                    {formData.images.length > 0 && (
+                    {getAllImages().length > 0 && (
                       <div className="image-preview-grid">
-                        {formData.images.map((url, idx) => (
-                          <div key={idx} className="image-preview-item">
-                            <img src={url} alt={`Preview ${idx + 1}`} />
-                            <button
-                              type="button"
-                              onClick={() => removeImage(idx)}
-                              className="remove-image-btn"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
+                        {getAllImages().map((url, idx) => {
+                          const isUploaded = idx < formData.uploadedImages.length;
+                          return (
+                            <div key={idx} className="image-preview-item">
+                              <img src={url} alt={`Preview ${idx + 1}`} />
+                              <button
+                                type="button"
+                                onClick={() => isUploaded ? removeUploadedImage(idx) : removeImageUrl(idx - formData.uploadedImages.length)}
+                                className="remove-image-btn"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     
                     <div className="form-group" style={{ marginTop: '1rem' }}>
                       <label>Or paste Image URLs (one per line)</label>
                       <textarea
-                        value={formData.images.join('\n')}
-                        onChange={(e) => setFormData({ ...formData, images: e.target.value.split('\n').filter(url => url.trim() !== '') })}
+                        value={formData.imageUrls.join('\n')}
+                        onChange={(e) => setFormData({ ...formData, imageUrls: e.target.value.split('\n').filter(url => url.trim() !== '') })}
                         rows="2"
                         placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg"
                       />
