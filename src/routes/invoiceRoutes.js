@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const Order = require('../models/Order');
-const { generateInvoiceHTML } = require('../services/invoiceService');
+const { generateInvoicePDF } = require('../services/invoiceService');
 
 // @route   GET /api/invoice/:orderId
-// @desc    Download invoice as HTML (printable)
+// @desc    Download invoice as PDF
 // @access  Private
 router.get('/:orderId', protect, async (req, res) => {
   try {
@@ -18,11 +18,11 @@ router.get('/:orderId', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    const html = generateInvoiceHTML(order);
+    const pdfBuffer = await generateInvoicePDF(order);
     
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename=invoice-${order._id.toString().slice(-10)}.html`);
-    res.send(html);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=invoice-${order._id.toString().slice(-10)}.pdf`);
+    res.send(pdfBuffer);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

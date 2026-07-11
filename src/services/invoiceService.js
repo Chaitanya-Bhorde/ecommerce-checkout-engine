@@ -1,7 +1,20 @@
-// Invoice Service - Generates invoice HTML for orders
-// Can be extended to generate PDF using libraries like pdfkit
+// Invoice Service - Generates invoice PDF for orders
+const PDFDocument = require('pdfkit');
 
-function generateInvoiceHTML(order) {
+function generateInvoicePDF(order) {
+  // Create a new PDF document
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const buffers = [];
+  
+  doc.on('data', (chunk) => {
+    buffers.push(chunk);
+  });
+
+  // Colors
+  const primaryColor = '#4f46e5';
+  const textColor = '#1f2937';
+  const lightGray = '#f9fafb';
+  const borderColor = '#e5e7eb';
   const statusColors = {
     pending: '#f59e0b',
     confirmed: '#3b82f6',
@@ -11,107 +24,163 @@ function generateInvoiceHTML(order) {
     cancelled: '#ef4444',
   };
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    @page { margin: 20px; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; margin: 0; padding: 20px; }
-    .invoice { max-width: 800px; margin: 0 auto; background: white; }
-    .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e5e7eb; }
-    .shop-name { font-size: 28px; font-weight: 700; color: #4f46e5; margin: 0; }
-    .invoice-title { font-size: 22px; font-weight: 600; color: #374151; margin: 5px 0 0; }
-    .invoice-meta { text-align: right; }
-    .meta-item { margin: 3px 0; font-size: 13px; color: #6b7280; }
-    .section { margin-bottom: 25px; }
-    .section-title { font-size: 16px; font-weight: 600; color: #374151; margin: 0 0 10px; padding-bottom: 5px; border-bottom: 1px solid #e5e7eb; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #f9fafb; padding: 10px 12px; text-align: left; font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; }
-    td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
-    .amount { text-align: right; font-weight: 500; }
-    .totals { margin-top: 15px; }
-    .total-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
-    .grand-total { font-size: 18px; font-weight: 700; border-top: 2px solid #e5e7eb; padding-top: 10px; margin-top: 5px; }
-    .address-box { background: #f9fafb; padding: 15px; border-radius: 8px; font-size: 14px; line-height: 1.6; }
-    .address-box p { margin: 2px 0; }
-    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; color: white; background: ${statusColors[order.status] || '#6b7280'}; }
-    .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 12px; color: #9ca3af; }
-  </style>
-</head>
-<body>
-  <div class="invoice">
-    <div class="header">
-      <div>
-        <h1 class="shop-name">ShopEase</h1>
-        <p class="invoice-title">TAX INVOICE</p>
-      </div>
-      <div class="invoice-meta">
-        <p class="meta-item"><strong>Invoice #:</strong> INV-${order._id.toString().slice(-10)}</p>
-        <p class="meta-item"><strong>Order #:</strong> ${order._id}</p>
-        <p class="meta-item"><strong>Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-        <p class="meta-item"><strong>Status:</strong> <span class="status-badge">${order.status}</span></p>
-      </div>
-    </div>
+  // Header
+  doc.fontSize(28).font('Helvetica-Bold').fillColor(primaryColor).text('ShopEase', { align: 'left' });
+  doc.moveDown(0.3);
+  doc.fontSize(18).font('Helvetica-Bold').fillColor(textColor).text('TAX INVOICE', { align: 'left' });
+  
+  // Invoice meta (right aligned)
+  doc.fontSize(11).font('Helvetica').fillColor('#6b7280');
+  const invoiceNumber = `INV-${order._id.toString().slice(-10)}`;
+  const orderNumber = order._id.toString();
+  const invoiceDate = new Date(order.createdAt).toLocaleDateString('en-IN', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  doc.text(`Invoice #: ${invoiceNumber}`, { align: 'right' });
+  doc.text(`Order #: ${orderNumber}`, { align: 'right' });
+  doc.text(`Date: ${invoiceDate}`, { align: 'right' });
+  
+  const statusColor = statusColors[order.status] || '#6b7280';
+  doc.fillColor(statusColor).text(`Status: ${order.status.toUpperCase()}`, { align: 'right' });
+  
+  // Horizontal line
+  doc.moveDown(0.5);
+  doc.strokeColor(borderColor).lineWidth(2).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+  doc.moveDown(1);
 
-    <div class="section">
-      <h2 class="section-title">Bill To</h2>
-      <div class="address-box">
-        <p><strong>${order.shippingAddress.fullName}</strong></p>
-        <p>${order.shippingAddress.address}</p>
-        <p>${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.pincode}</p>
-        <p>Phone: ${order.shippingAddress.phone}</p>
-      </div>
-    </div>
+  // Bill To Section
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(textColor).text('Bill To', { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(11).font('Helvetica').fillColor(textColor);
+  
+  const shippingAddress = order.shippingAddress;
+  const fullName = shippingAddress.fullName || 'Customer';
+  const address = shippingAddress.address || '';
+  const city = shippingAddress.city || '';
+  const state = shippingAddress.state || '';
+  const zipCode = shippingAddress.zipCode || shippingAddress.pincode || '';
+  const phone = shippingAddress.phone || '';
+  
+  doc.font('Helvetica-Bold').text(fullName);
+  doc.font('Helvetica').text(address);
+  doc.text(`${city}, ${state} - ${zipCode}`);
+  doc.text(`Phone: ${phone}`);
+  
+  // Draw box around address
+  const addressBoxHeight = 70;
+  doc.y -= 10;
+  doc.rect(50, doc.y, 495, addressBoxHeight).fill(lightGray).stroke(borderColor);
+  doc.y += addressBoxHeight + 15;
 
-    <div class="section">
-      <h2 class="section-title">Order Items</h2>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:50%">Item</th>
-            <th style="width:15%">Qty</th>
-            <th style="width:15%">Price</th>
-            <th style="width:20%" class="amount">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${order.items.map(item => `
-            <tr>
-              <td>${item.name}</td>
-              <td>${item.quantity}</td>
-              <td>₹${item.price.toFixed(2)}</td>
-              <td class="amount">₹${(item.price * item.quantity).toFixed(2)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-      
-      <div class="totals">
-        <div class="total-row"><span>Subtotal</span><span>₹${order.subtotal.toFixed(2)}</span></div>
-        <div class="total-row"><span>Tax (18% GST)</span><span>₹${order.tax.toFixed(2)}</span></div>
-        <div class="total-row"><span>Shipping</span><span>${order.shippingCost === 0 ? 'FREE' : '₹' + order.shippingCost.toFixed(2)}</span></div>
-        <div class="total-row grand-total"><span>Total</span><span>₹${order.total.toFixed(2)}</span></div>
-      </div>
-    </div>
+  // Order Items Section
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(textColor).text('Order Items', { underline: true });
+  doc.moveDown(0.5);
 
-    <div class="section">
-      <h2 class="section-title">Payment Information</h2>
-      <div class="address-box">
-        <p><strong>Method:</strong> ${order.payment?.method?.toUpperCase() || 'N/A'}</p>
-        ${order.payment?.razorpayPaymentId ? `<p><strong>Payment ID:</strong> ${order.payment.razorpayPaymentId}</p>` : ''}
-        ${order.payment?.paidAt ? `<p><strong>Paid On:</strong> ${new Date(order.payment.paidAt).toLocaleString('en-IN')}</p>` : ''}
-        <p><strong>Status:</strong> <span class="status-badge">${order.status}</span></p>
-      </div>
-    </div>
+  // Table header
+  const tableTop = doc.y;
+  const colWidths = [250, 70, 100, 125]; // Item, Qty, Price, Total
+  const startX = 50;
+  
+  doc.rect(startX, tableTop, colWidths[0], 25).fill('#f9fafb').stroke(borderColor);
+  doc.rect(startX + colWidths[0], tableTop, colWidths[1], 25).fill('#f9fafb').stroke(borderColor);
+  doc.rect(startX + colWidths[0] + colWidths[1], tableTop, colWidths[2], 25).fill('#f9fafb').stroke(borderColor);
+  doc.rect(startX + colWidths[0] + colWidths[1] + colWidths[2], tableTop, colWidths[3], 25).fill('#f9fafb').stroke(borderColor);
+  
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#6b7280');
+  doc.text('Item', startX + 5, tableTop + 8);
+  doc.text('Qty', startX + colWidths[0] + 5, tableTop + 8);
+  doc.text('Price', startX + colWidths[0] + colWidths[1] + 5, tableTop + 8);
+  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 5, tableTop + 8, { align: 'right', width: colWidths[3] - 10 });
 
-    <div class="footer">
-      <p>Thank you for shopping with ShopEase!</p>
-      <p>For any queries, please contact our support team.</p>
-    </div>
-  </div>
-</body>
-</html>`;
+  // Table rows
+  doc.font('Helvetica').fillColor(textColor);
+  let rowY = tableTop + 25;
+  
+  order.items.forEach((item) => {
+    const itemTotal = item.price * item.quantity;
+    
+    doc.rect(startX, rowY, colWidths[0], 30).stroke(borderColor);
+    doc.rect(startX + colWidths[0], rowY, colWidths[1], 30).stroke(borderColor);
+    doc.rect(startX + colWidths[0] + colWidths[1], rowY, colWidths[2], 30).stroke(borderColor);
+    doc.rect(startX + colWidths[0] + colWidths[1] + colWidths[2], rowY, colWidths[3], 30).stroke(borderColor);
+    
+    doc.fontSize(10).text(item.name, startX + 5, rowY + 10, { width: colWidths[0] - 10 });
+    doc.text(item.quantity.toString(), startX + colWidths[0] + 5, rowY + 10);
+    doc.text(`₹${item.price.toFixed(2)}`, startX + colWidths[0] + colWidths[1] + 5, rowY + 10);
+    doc.text(`₹${itemTotal.toFixed(2)}`, startX + colWidths[0] + colWidths[1] + colWidths[2] + 5, rowY + 10, { align: 'right', width: colWidths[3] - 10 });
+    
+    rowY += 30;
+  });
+
+  doc.y = rowY + 10;
+
+  // Totals
+  const totalsX = 350;
+  const totalsWidth = 195;
+  
+  doc.fontSize(11).font('Helvetica').fillColor(textColor);
+  doc.text('Subtotal:', totalsX, doc.y);
+  doc.text(`₹${order.subtotal.toFixed(2)}`, { align: 'right', width: totalsWidth });
+  doc.y += 20;
+  
+  doc.text('Tax (18% GST):', totalsX, doc.y);
+  doc.text(`₹${order.tax.toFixed(2)}`, { align: 'right', width: totalsWidth });
+  doc.y += 20;
+  
+  const shippingText = order.shippingCost === 0 ? 'FREE' : `₹${order.shippingCost.toFixed(2)}`;
+  doc.text('Shipping:', totalsX, doc.y);
+  doc.text(shippingText, { align: 'right', width: totalsWidth });
+  doc.y += 20;
+  
+  // Grand total with border
+  doc.y += 5;
+  doc.strokeColor(borderColor).lineWidth(2).moveTo(totalsX, doc.y).lineTo(545, doc.y).stroke();
+  doc.y += 10;
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(primaryColor);
+  doc.text('Total:', totalsX, doc.y);
+  doc.text(`₹${order.total.toFixed(2)}`, { align: 'right', width: totalsWidth });
+  doc.y += 30;
+
+  // Payment Information
+  doc.fontSize(14).font('Helvetica-Bold').fillColor(textColor).text('Payment Information', { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(11).font('Helvetica').fillColor(textColor);
+  
+  const paymentMethod = order.payment?.method?.toUpperCase() || 'N/A';
+  doc.font('Helvetica-Bold').text('Method: ');
+  doc.font('Helvetica').text(paymentMethod);
+  
+  if (order.payment?.razorpayPaymentId) {
+    doc.font('Helvetica-Bold').text('Payment ID: ');
+    doc.font('Helvetica').text(order.payment.razorpayPaymentId);
+  }
+  
+  if (order.payment?.paidAt) {
+    const paidOn = new Date(order.payment.paidAt).toLocaleString('en-IN');
+    doc.font('Helvetica-Bold').text('Paid On: ');
+    doc.font('Helvetica').text(paidOn);
+  }
+  
+  doc.font('Helvetica-Bold').text('Status: ');
+  doc.fillColor(statusColor).text(order.status.toUpperCase());
+
+  // Footer
+  doc.moveDown(2);
+  doc.fontSize(10).font('Helvetica').fillColor('#9ca3af').text('Thank you for shopping with ShopEase!', { align: 'center' });
+  doc.text('For any queries, please contact our support team.', { align: 'center' });
+
+  // Finalize the PDF
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(buffers);
+      resolve(pdfBuffer);
+    });
+  });
 }
 
-module.exports = { generateInvoiceHTML };
+module.exports = { generateInvoicePDF };

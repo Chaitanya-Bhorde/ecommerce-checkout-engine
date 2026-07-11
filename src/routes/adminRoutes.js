@@ -30,6 +30,8 @@ router.use(admin);
 // Dashboard Stats
 router.get('/dashboard/stats', async (req, res) => {
   try {
+    console.log('[Admin Dashboard] Fetching stats...');
+    
     const [
       totalRevenue,
       totalOrders,
@@ -44,22 +46,48 @@ router.get('/dashboard/stats', async (req, res) => {
       Order.aggregate([
         { $match: { status: 'delivered' } },
         { $group: { _id: null, total: { $sum: '$total' } } },
-      ]),
+      ]).catch(err => {
+        console.error('[Admin Dashboard] Error fetching revenue:', err);
+        return [{ total: 0 }];
+      }),
       // Total orders
-      Order.countDocuments(),
+      Order.countDocuments().catch(err => {
+        console.error('[Admin Dashboard] Error fetching orders:', err);
+        return 0;
+      }),
       // Pending orders
-      Order.countDocuments({ status: 'pending' }),
+      Order.countDocuments({ status: 'pending' }).catch(err => {
+        console.error('[Admin Dashboard] Error fetching pending orders:', err);
+        return 0;
+      }),
       // Total customers
-      User.countDocuments({ role: 'customer' }),
+      User.countDocuments({ role: 'customer' }).catch(err => {
+        console.error('[Admin Dashboard] Error fetching customers:', err);
+        return 0;
+      }),
       // Total products
-      Product.countDocuments(),
+      Product.countDocuments().catch(err => {
+        console.error('[Admin Dashboard] Error fetching products:', err);
+        return 0;
+      }),
       // Active products
-      Product.countDocuments({ isActive: true }),
+      Product.countDocuments({ isActive: true }).catch(err => {
+        console.error('[Admin Dashboard] Error fetching active products:', err);
+        return 0;
+      }),
       // Total categories
-      Category.countDocuments(),
+      Category.countDocuments().catch(err => {
+        console.error('[Admin Dashboard] Error fetching categories:', err);
+        return 0;
+      }),
       // Active categories
-      Category.countDocuments({ isActive: true }),
+      Category.countDocuments({ isActive: true }).catch(err => {
+        console.error('[Admin Dashboard] Error fetching active categories:', err);
+        return 0;
+      }),
     ]);
+
+    console.log('[Admin Dashboard] Stats fetched successfully');
 
     res.json({
       revenue: totalRevenue[0]?.total || 0,
@@ -80,7 +108,11 @@ router.get('/dashboard/stats', async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('[Admin Dashboard] Error fetching stats:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch dashboard stats',
+      error: error.message 
+    });
   }
 });
 

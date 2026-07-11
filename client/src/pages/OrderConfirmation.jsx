@@ -204,10 +204,10 @@ export default function OrderConfirmation() {
           <a 
             href={`/api/invoice/${order._id}`} 
             className="btn-secondary"
-            target="_blank"
+            download
             rel="noopener noreferrer"
           >
-            📄 Download Invoice
+            📥 Download Receipt (PDF)
           </a>
           <Link to="/products" className="btn-secondary">
             Continue Shopping

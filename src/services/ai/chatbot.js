@@ -24,10 +24,23 @@ async function getUserOrders(userId, limit = 5) {
     const orders = await Order.find({ user: userId })
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('_id total status createdAt items deliveryProgress');
+      .select('_id total status createdAt items deliveryProgress')
+      .populate('items.product', 'name price category');
+    
+    // Map orders with detailed item information including categories
     return orders.map(order => ({
-      id: order._id, total: order.total, status: order.status,
-      progress: order.deliveryProgress, date: order.createdAt, items: order.items.length,
+      id: order._id, 
+      total: order.total, 
+      status: order.status,
+      progress: order.deliveryProgress, 
+      date: order.createdAt, 
+      items: order.items.length,
+      itemDetails: order.items.map(item => ({
+        name: item.product?.name || 'Unknown Product',
+        price: item.price,
+        quantity: item.quantity,
+        category: item.product?.category?.name || 'General',
+      }))
     }));
   } catch (error) {
     console.error('Error fetching user orders:', error);
@@ -118,6 +131,94 @@ async function getDatabaseStats() {
   }
 }
 
+/**
+ * Get popular products analytics for admin
+ */
+async function getPopularProducts(limit = 10) {
+  try {
+    // Aggregate orders to find most ordered products
+    const popularProducts = await Order.aggregate([
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product',
+          totalQuantity: { $sum: '$items.quantity' },
+          totalRevenue: { $sum: '$items.price' },
+          orderCount: { $sum: 1 },
+        }
+      },
+      { $sort: { totalQuantity: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        }
+      },
+      { $unwind: '$product' },
+      {
+        $project: {
+          productId: '$_id',
+          name: '$product.name',
+          category: '$product.category',
+          totalQuantity: 1,
+          totalRevenue: 1,
+          orderCount: 1,
+        }
+      }
+    ]);
+
+    return popularProducts;
+  } catch (error) {
+    console.error('Error fetching popular products:', error);
+    return [];
+  }
+}
+
+/**
+ * Get category-wise sales analytics
+ */
+async function getCategoryAnalytics() {
+  try {
+    const categoryStats = await Order.aggregate([
+      { $unwind: '$items' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'product',
+        }
+      },
+      { $unwind: '$product' },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'product.category',
+          foreignField: '_id',
+          as: 'category',
+        }
+      },
+      { $unwind: '$category' },
+      {
+        $group: {
+          _id: '$category.name',
+          totalSales: { $sum: '$items.quantity' },
+          totalRevenue: { $sum: '$items.price' },
+        }
+      },
+      { $sort: { totalRevenue: -1 } },
+    ]);
+
+    return categoryStats;
+  } catch (error) {
+    console.error('Error fetching category analytics:', error);
+    return [];
+  }
+}
+
 async function chat(userId, message, context = {}, conversationId = null) {
   const userName = context.userName || 'Customer';
   const userEmail = context.userEmail || '';
@@ -161,8 +262,25 @@ async function chat(userId, message, context = {}, conversationId = null) {
     }));
 
     console.log(`[Chatbot] Fetching FRESH database stats for ${userName}...`);
-    const [userOrders, recommendations, stats] = await Promise.all([
-      getUserOrders(normalizedUserId, orderLimit),
+    
+    // For admins, fetch analytics data instead of personal orders
+    let userOrders = [];
+    let popularProducts = [];
+    let categoryAnalytics = [];
+    
+    if (userRole === 'admin') {
+      const [popular, categories] = await Promise.all([
+        getPopularProducts(10),
+        getCategoryAnalytics(),
+      ]);
+      popularProducts = popular;
+      categoryAnalytics = categories;
+      console.log(`[Chatbot] Admin analytics - Popular products: ${popularProducts.length}, Categories: ${categoryAnalytics.length}`);
+    } else {
+      userOrders = await getUserOrders(normalizedUserId, orderLimit);
+    }
+    
+    const [recommendations, stats] = await Promise.all([
       getProductRecommendations(message),
       getDatabaseStats(),
     ]);
@@ -195,10 +313,40 @@ CURRENT USER:
       relevantDocs.forEach((doc, i) => { systemPrompt += `${i+1}. ${doc.pageContent}\n`; });
     }
 
-    if (userOrders.length > 0) {
-      systemPrompt += `\n${userName}'S ORDERS:\n`;
+    if (userRole === 'admin') {
+      // Admin analytics section
+      systemPrompt += `\nBUSINESS ANALYTICS (FOR ADMIN ONLY - USE THIS TO ANSWER BUSINESS QUESTIONS):\n`;
+      systemPrompt += `Total Customers: ${stats.totalUsers}\n`;
+      systemPrompt += `Total Orders: ${stats.totalOrders} (Pending: ${stats.pendingOrders}, Delivered: ${stats.deliveredOrders}, Cancelled: ${stats.cancelledOrders})\n`;
+      systemPrompt += `Total Products: ${stats.totalProducts}\n\n`;
+      
+      if (popularProducts.length > 0) {
+        systemPrompt += `TOP SELLING PRODUCTS (by quantity sold):\n`;
+        popularProducts.forEach((p, i) => {
+          systemPrompt += `${i+1}. ${p.name} - ${p.totalQuantity} units sold - ₹${p.totalRevenue?.toFixed(2) || 0} revenue (${p.orderCount} orders)\n`;
+        });
+        systemPrompt += `\n`;
+      }
+      
+      if (categoryAnalytics.length > 0) {
+        systemPrompt += `CATEGORY-WISE SALES:\n`;
+        categoryAnalytics.forEach((cat, i) => {
+          systemPrompt += `${i+1}. ${cat._id}: ${cat.totalSales} units - ₹${cat.totalRevenue?.toFixed(2) || 0} revenue\n`;
+        });
+        systemPrompt += `\n`;
+      }
+      
+      systemPrompt += `CRITICAL FOR ADMIN: When admin asks about analytics, customers, products, or sales - USE THE DATA ABOVE. Never say "you have no orders" - you're the admin, not a customer!\n\n`;
+    } else if (userOrders.length > 0) {
+      systemPrompt += `\n${userName}'S ORDERS WITH PRODUCT DETAILS:\n`;
       const displayOrders = userOrders.slice(0, 10);
-      displayOrders.forEach((o, i) => { systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status}\n`; });
+      displayOrders.forEach((o, i) => {
+        systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status}\n`;
+        systemPrompt += `   Items:\n`;
+        o.itemDetails.forEach((item, idx) => {
+          systemPrompt += `   ${idx+1}. ${item.name} (${item.category}) - ₹${item.price} x ${item.quantity}\n`;
+        });
+      });
       
       if (userOrders.length > 10) {
         systemPrompt += `\n...and ${userOrders.length - 10} more orders. Ask me about a specific order ID for full details.\n`;

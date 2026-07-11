@@ -626,3 +626,91 @@
     padding: 15px 20px;
   }
 }
+
+/* Order Details Card */
+.order-details-card {
+  margin-top: 12px;
+  padding: 16px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.order-details-card h4 {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0c4a6e;
+}
+
+.order-details-card p {
+  margin: 6px 0;
+  color: #1e293b;
+  line-height: 1.5;
+}
+
+.order-details-card strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.order-items-list {
+  margin-top: 8px;
+  padding-left: 12px;
+}
+
+.order-items-list p {
+  margin: 8px 0 6px 0;
+}
+
+.order-item-mini {
+  padding: 4px 0;
+  color: #334155;
+  font-size: 13px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.status-pending {
+  background: #f59e0b;
+}
+
+.status-confirmed {
+  background: #3b82f6;
+}
+
+.status-processing {
+  background: #8b5cf6;
+}
+
+.status-shipped {
+  background: #06b6d4;
+}
+
+.status-out_for_delivery {
+  background: #f97316;
+}
+
+.status-delivered {
+  background: #10b981;
+}
+
+.status-received {
+  background: #059669;
+}
+
+.status-cancelled {
+  background: #ef4444;
+}
+
+.status-refunded {
+  background: #6b7280;
+}

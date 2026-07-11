@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import './AdminProducts.css';
 
 // Category ID to name mapping for display
 const categoryNames = {
@@ -25,6 +26,7 @@ export default function AdminProducts() {
     description: '',
     price: '',
     category: '',
+    newCategory: '',
     stock: '',
     images: [],
     isActive: true,
@@ -62,11 +64,30 @@ export default function AdminProducts() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      let categoryId = formData.category;
+      
+      // If admin selected "Add New Category", create it first
+      if (categoryId === '__new__' && formData.newCategory.trim()) {
+        try {
+          const newCategoryRes = await api.post('/categories', {
+            name: formData.newCategory.trim(),
+            isActive: true,
+          });
+          categoryId = newCategoryRes.data._id;
+          // Refresh categories list
+          const categoriesRes = await api.get('/categories?isActive=true');
+          setCategories(categoriesRes.data);
+        } catch (err) {
+          alert('Failed to create category. Please try again.');
+          return;
+        }
+      }
+
       const productData = {
         ...formData,
         price: Number(formData.price),
         stock: Number(formData.stock),
-        category: formData.category,
+        category: categoryId,
         images: formData.images.filter(url => url.trim() !== ''),
       };
 
@@ -85,8 +106,9 @@ export default function AdminProducts() {
         description: '',
         price: '',
         category: '',
+        newCategory: '',
         stock: '',
-        images: [''],
+        images: [],
         isActive: true,
       });
       fetchProducts();
@@ -133,6 +155,74 @@ export default function AdminProducts() {
     }
   };
 
+  // Resize image to match standard product image size (800x800)
+  const resizeImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Create canvas for resizing
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          // Standard size for product images (square, good quality)
+          const maxSize = 800;
+          let width = img.width;
+          let height = img.height;
+          
+          // Calculate new dimensions while maintaining aspect ratio
+          if (width > height) {
+            if (width > maxSize) {
+              height = (height * maxSize) / width;
+              width = maxSize;
+            }
+          } else {
+            if (height > maxSize) {
+              width = (width * maxSize) / height;
+              height = maxSize;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          // Draw resized image
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Convert to base64
+          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          resolve(resizedDataUrl);
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    try {
+      const resizedImages = await Promise.all(files.map(file => resizeImage(file)));
+      setFormData({
+        ...formData,
+        images: [...formData.images, ...resizedImages]
+      });
+    } catch (error) {
+      console.error('Error processing images:', error);
+      alert('Failed to process images. Please try again.');
+    }
+  };
+
+  const removeImage = (index) => {
+    const newImages = formData.images.filter((_, i) => i !== index);
+    setFormData({ ...formData, images: newImages });
+  };
+
   if (loading) {
     return (
       <div className="admin-page">
@@ -160,6 +250,7 @@ export default function AdminProducts() {
                 description: '',
                 price: '',
                 category: '',
+                newCategory: '',
                 stock: '',
                 images: [],
                 isActive: true,
@@ -261,7 +352,20 @@ export default function AdminProducts() {
                         {cat.name}
                       </option>
                     ))}
+                    <option value="__new__">+ Add New Category</option>
                   </select>
+                  
+                  {formData.category === '__new__' && (
+                    <div className="new-category-input" style={{ marginTop: '0.5rem' }}>
+                      <input
+                        type="text"
+                        placeholder="Enter new category name"
+                        value={formData.newCategory}
+                        onChange={(e) => setFormData({ ...formData, newCategory: e.target.value })}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
                 </div>
 
@@ -297,20 +401,50 @@ export default function AdminProducts() {
                 </div>
 
                 <div className="form-group">
-                  <label>Image URLs (one per line)</label>
-                  <textarea
-                    value={formData.images.join('\n')}
-                    onChange={(e) => setFormData({ ...formData, images: e.target.value.split('\n') })}
-                    rows="3"
-                    placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg"
-                  />
-                  {formData.images.length > 0 && (
-                    <div className="image-preview">
-                      {formData.images.map((url, idx) => (
-                        <img key={idx} src={url} alt={`Preview ${idx + 1}`} />
-                      ))}
+                  <label>Product Images</label>
+                  <div className="image-upload-section">
+                    <div className="upload-area">
+                      <input
+                        type="file"
+                        id="imageUpload"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageUpload}
+                        style={{ display: 'none' }}
+                      />
+                      <label htmlFor="imageUpload" className="upload-button">
+                        📁 Click to Upload Images
+                      </label>
+                      <p className="upload-hint">Supports: JPG, PNG, WEBP (Max 5MB each)</p>
                     </div>
-                  )}
+                    
+                    {formData.images.length > 0 && (
+                      <div className="image-preview-grid">
+                        {formData.images.map((url, idx) => (
+                          <div key={idx} className="image-preview-item">
+                            <img src={url} alt={`Preview ${idx + 1}`} />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(idx)}
+                              className="remove-image-btn"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <div className="form-group" style={{ marginTop: '1rem' }}>
+                      <label>Or paste Image URLs (one per line)</label>
+                      <textarea
+                        value={formData.images.join('\n')}
+                        onChange={(e) => setFormData({ ...formData, images: e.target.value.split('\n').filter(url => url.trim() !== '') })}
+                        rows="2"
+                        placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.jpg"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="form-group checkbox-group">

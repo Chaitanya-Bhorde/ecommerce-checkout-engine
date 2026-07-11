@@ -7,6 +7,7 @@ const Conversation = require('../models/Conversation');
 const ChatMessage = require('../models/ChatMessage');
 const SupportTicket = require('../models/SupportTicket');
 const Order = require('../models/Order');
+const { processReceiptPDF } = require('../services/ai/pdfParserService');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -470,7 +471,7 @@ router.get('/admin/vector-store/stats', protect, async (req, res) => {
 });
 
 // @route   POST /api/ai/upload-receipt
-// @desc    Upload receipt image/PDF and extract order details
+// @desc    Upload receipt PDF and extract order details
 // @access  Private
 router.post('/upload-receipt', protect, upload.single('receipt'), async (req, res) => {
   try {
@@ -485,38 +486,85 @@ router.post('/upload-receipt', protect, upload.single('receipt'), async (req, re
     const userId = String(req.user._id);
     const userName = req.user.name || 'Customer';
 
-    // Save file path (in production, you would use OCR here to extract order details)
     const filePath = req.file.path;
     const fileName = req.file.originalname;
 
-    // TODO: Add OCR processing here to extract order ID from receipt
-    // For now, we'll simulate finding an order from the receipt
-    // In production, use Tesseract.js or similar OCR library
-    
-    // Try to find the most recent order for this user
-    const recentOrder = await Order.findOne({ user: userId })
-      .sort({ createdAt: -1 })
-      .populate('items.product', 'name price images');
-
     let orderDetails = null;
-    let message = 'Receipt uploaded successfully! ';
+    let message = '';
 
-    if (recentOrder) {
-      orderDetails = {
-        orderId: recentOrder._id,
-        orderNumber: '#' + recentOrder._id.slice(-8).toUpperCase(),
-        date: recentOrder.createdAt,
-        total: recentOrder.total,
-        status: recentOrder.status,
-        items: recentOrder.items.map(item => ({
-          name: item.product?.name || 'Product',
-          quantity: item.quantity,
-          price: item.price,
-        })),
-      };
-      message += `I found your recent order #${recentOrder._id.slice(-8).toUpperCase()}. How can I help you with this order?`;
-    } else {
-      message += 'I could not find any order associated with this receipt. Please provide your order ID or ask me anything else.';
+    try {
+      // Process the PDF to extract text and order details
+      const pdfResult = await processReceiptPDF(filePath);
+      console.log('[Upload Receipt] PDF processing result:', pdfResult.success ? 'Success' : 'Failed');
+
+      // Always try to get the user's most recent order as a fallback
+      const recentOrder = await Order.findOne({ user: userId })
+        .sort({ createdAt: -1 })
+        .populate('items.product', 'name price images');
+
+      if (pdfResult.success && pdfResult.orderDetails && pdfResult.orderDetails.orderNumber) {
+        // PDF parsing succeeded - use extracted details
+        orderDetails = pdfResult.orderDetails;
+        console.log('[Upload Receipt] Using PDF extracted details');
+      } else if (recentOrder) {
+        // PDF parsing failed - use most recent order from database
+        orderDetails = {
+          orderId: recentOrder._id,
+          orderNumber: '#' + recentOrder._id.slice(-8).toUpperCase(),
+          date: recentOrder.createdAt,
+          total: recentOrder.total,
+          status: recentOrder.status,
+          items: recentOrder.items.map(item => ({
+            name: item.product?.name || item.name || 'Product',
+            quantity: item.quantity,
+            price: item.price,
+          })),
+          paymentMethod: recentOrder.payment?.method || null,
+          paymentId: recentOrder.payment?.razorpayPaymentId || null,
+        };
+        console.log('[Upload Receipt] Using fallback - most recent order from database');
+      } else {
+        // No order found at all
+        message = 'I received your receipt but could not find any associated orders. Please provide your order ID or describe what you need help with.';
+      }
+
+      // Build detailed response message if we have order details
+      if (orderDetails) {
+        message = `📄 I've analyzed your receipt! Here are the details:\n\n`;
+        
+        if (orderDetails.orderNumber) {
+          message += `📋 Order: ${orderDetails.orderNumber}\n`;
+        }
+        if (orderDetails.date) {
+          const dateStr = typeof orderDetails.date === 'string' 
+            ? orderDetails.date 
+            : new Date(orderDetails.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+          message += `📅 Date: ${dateStr}\n`;
+        }
+        if (orderDetails.total) {
+          message += `💰 Total: ₹${orderDetails.total.toFixed(2)}\n`;
+        }
+        if (orderDetails.status) {
+          message += `📊 Status: ${orderDetails.status.toUpperCase()}\n`;
+        }
+        if (orderDetails.items && orderDetails.items.length > 0) {
+          message += `\n📦 Items (${orderDetails.items.length}):\n`;
+          orderDetails.items.forEach((item, idx) => {
+            message += `  ${idx + 1}. ${item.name} - Qty: ${item.quantity} - ₹${item.price.toFixed(2)}\n`;
+          });
+        }
+        if (orderDetails.paymentMethod) {
+          message += `\n💳 Payment: ${orderDetails.paymentMethod.toUpperCase()}\n`;
+        }
+        if (orderDetails.paymentId) {
+          message += `🔖 Payment ID: ${orderDetails.paymentId}\n`;
+        }
+
+        message += `\nHow can I help you with this order?`;
+      }
+    } catch (pdfError) {
+      console.error('PDF processing error:', pdfError);
+      message = 'I had trouble reading your receipt. Please provide your order ID or describe your issue, and I\'ll be happy to help!';
     }
 
     // Create or update conversation

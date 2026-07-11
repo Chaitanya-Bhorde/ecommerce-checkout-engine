@@ -44,6 +44,8 @@
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "openai": "^4.104.0",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.19.1",
     "razorpay": "^2.9.6",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",

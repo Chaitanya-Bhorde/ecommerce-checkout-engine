@@ -55,30 +55,17 @@ export default function Navbar() {
           <>
             <NotificationBell />
             {user.role === 'admin' ? (
-              <>
-                <Link to="/admin" style={{
-                  color: '#4f46e5',
-                  textDecoration: 'none',
-                  fontSize: '0.9rem',
-                  fontWeight: '600',
-                  padding: '0.3rem 0.7rem',
-                  background: '#eef2ff',
-                  borderRadius: '8px',
-                }}>
-                  Admin Dashboard
-                </Link>
-                <Link to="/admin/ai-analytics" style={{
-                  color: '#7c3aed',
-                  textDecoration: 'none',
-                  fontSize: '0.9rem',
-                  fontWeight: '600',
-                  padding: '0.3rem 0.7rem',
-                  background: '#f5f3ff',
-                  borderRadius: '8px',
-                }}>
-                  AI Analytics
-                </Link>
-              </>
+              <Link to="/admin" style={{
+                color: '#4f46e5',
+                textDecoration: 'none',
+                fontSize: '0.9rem',
+                fontWeight: '600',
+                padding: '0.3rem 0.7rem',
+                background: '#eef2ff',
+                borderRadius: '8px',
+              }}>
+                Admin Dashboard
+              </Link>
             ) : (
               <>
                 <Link to="/wishlist" style={{
@@ -117,6 +104,35 @@ export default function Navbar() {
             }}>
               Hi, {user.name}
             </span>
+            {user.role === 'admin' ? (
+              <span style={{
+                fontSize: '0.8rem',
+                color: '#7c3aed',
+                fontWeight: '600',
+                padding: '0.25rem 0.6rem',
+                background: '#f5f3ff',
+                border: '1px solid #ddd6fe',
+                borderRadius: '9999px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
+                + Admin
+              </span>
+            ) : (
+              <span style={{
+                fontSize: '0.8rem',
+                color: '#059669',
+                fontWeight: '600',
+                padding: '0.25rem 0.6rem',
+                background: '#d1fae5',
+                border: '1px solid #a7f3d0',
+                borderRadius: '9999px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
+                + User
+              </span>
+            )}
             <button
               onClick={logout}
               style={{

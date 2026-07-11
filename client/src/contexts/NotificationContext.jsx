@@ -10,35 +10,65 @@ export const NotificationProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
-  // Fetch notifications
-  const fetchNotifications = async () => {
+  // Fetch notifications with retry logic
+  const fetchNotifications = async (retries = 3, delay = 2000) => {
     if (!user) return;
     
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await api.get('/notifications');
-      if (res.data.success) {
-        setNotifications(res.data.notifications);
-        setUnreadCount(res.data.unreadCount);
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const res = await api.get('/notifications');
+          if (res.data.success) {
+            setNotifications(res.data.notifications);
+            setUnreadCount(res.data.unreadCount);
+          }
+          return; // Success - exit retry loop
+        } catch (error) {
+          if (error.code === 'ERR_NETWORK' || error.message?.includes('ECONNREFUSED')) {
+            if (attempt < retries) {
+              console.warn(`Notifications fetch attempt ${attempt}/${retries} failed (server not ready), retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 2; // Exponential backoff
+            } else {
+              console.error('Error fetching notifications after all retries:', error);
+            }
+          } else {
+            console.error('Error fetching notifications:', error);
+            return; // Non-connection error, don't retry
+          }
+        }
       }
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch unread count
-  const fetchUnreadCount = async () => {
+  // Fetch unread count with retry logic
+  const fetchUnreadCount = async (retries = 3, delay = 2000) => {
     if (!user) return;
     
-    try {
-      const res = await api.get('/notifications/unread-count');
-      if (res.data.success) {
-        setUnreadCount(res.data.unreadCount);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const res = await api.get('/notifications/unread-count');
+        if (res.data.success) {
+          setUnreadCount(res.data.unreadCount);
+        }
+        return; // Success - exit retry loop
+      } catch (error) {
+        if (error.code === 'ERR_NETWORK' || error.message?.includes('ECONNREFUSED')) {
+          if (attempt < retries) {
+            console.warn(`Notification fetch attempt ${attempt}/${retries} failed (server not ready), retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2; // Exponential backoff
+          } else {
+            console.error('Error fetching unread count after all retries:', error);
+          }
+        } else {
+          console.error('Error fetching unread count:', error);
+          return; // Non-connection error, don't retry
+        }
       }
-    } catch (error) {
-      console.error('Error fetching unread count:', error);
     }
   };
 
@@ -100,13 +130,13 @@ export const NotificationProvider = ({ children }) => {
     }
   }, [user]);
 
-  // Poll for new notifications every 30 seconds
+  // Poll for new notifications every 60 seconds (increased to avoid rate limits)
   useEffect(() => {
     if (!user) return;
 
     const interval = setInterval(() => {
       fetchUnreadCount();
-    }, 30000);
+    }, 60000); // Changed from 30000 to 60000
 
     return () => clearInterval(interval);
   }, [user]);

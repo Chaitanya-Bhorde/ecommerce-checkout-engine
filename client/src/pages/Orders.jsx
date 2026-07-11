@@ -157,11 +157,11 @@ export default function Orders() {
                       <a
                         href={`/api/invoice/${order._id}`}
                         className="btn-link"
-                        target="_blank"
+                        download
                         rel="noopener noreferrer"
                         style={{ color: '#10b981' }}
                       >
-                        📄 Receipt
+                        📥 Download Receipt
                       </a>
                       {['pending', 'confirmed'].includes(order.status) && (
                         <button

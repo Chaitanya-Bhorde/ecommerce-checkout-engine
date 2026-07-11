@@ -18,7 +18,6 @@ import AdminProducts from './pages/AdminProducts';
 import AdminCategories from './pages/AdminCategories';
 import AdminCustomers from './pages/AdminCustomers';
 import AdminLedger from './pages/AdminLedger';
-import AdminAIAnalytics from './pages/AdminAIAnalytics';
 import AdminSupportTickets from './pages/AdminSupportTickets';
 import Chat from './pages/Chat';
 import ChangePassword from './pages/ChangePassword';
@@ -104,11 +103,6 @@ export default function App() {
         <Route path="/admin/ledger" element={
           <AdminRoute>
             <AdminLedger />
-          </AdminRoute>
-        } />
-        <Route path="/admin/ai-analytics" element={
-          <AdminRoute>
-            <AdminAIAnalytics />
           </AdminRoute>
         } />
         <Route path="/admin/support-tickets" element={

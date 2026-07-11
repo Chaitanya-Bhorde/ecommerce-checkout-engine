@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import ProductCard from '../components/ProductCard';
@@ -17,8 +17,49 @@ export default function Products() {
   });
   const [searchTerm, setSearchTerm] = useState(filters.search);
   const [loading, setLoading] = useState(true);
+  const [wishlistItems, setWishlistItems] = useState(new Set());
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Fetch user's wishlist to show which products are already in it
+  useEffect(() => {
+    if (!user) return;
+    const fetchWishlist = async () => {
+      try {
+        const res = await api.get('/wishlist');
+        if (res.data.success && res.data.wishlist?.items) {
+          const ids = new Set(res.data.wishlist.items.map(item => item.product?._id));
+          setWishlistItems(ids);
+        }
+      } catch (err) {
+        // Silently fail - wishlist is not critical
+      }
+    };
+    fetchWishlist();
+  }, [user]);
+
+  const toggleWishlist = async (productId) => {
+    if (!user) {
+      const confirmLogin = window.confirm('Please login to manage wishlist. Click OK to go to login page.');
+      if (confirmLogin) navigate('/login');
+      return;
+    }
+    try {
+      if (wishlistItems.has(productId)) {
+        await api.delete(`/wishlist/remove/${productId}`);
+        setWishlistItems(prev => {
+          const next = new Set(prev);
+          next.delete(productId);
+          return next;
+        });
+      } else {
+        await api.post('/wishlist/add', { productId });
+        setWishlistItems(prev => new Set(prev).add(productId));
+      }
+    } catch (err) {
+      console.error('Failed to update wishlist:', err);
+    }
+  };
 
   // Debounce search input to prevent API calls on every keystroke
   useEffect(() => {
@@ -203,7 +244,13 @@ export default function Products() {
             gap: '1.5rem',
           }}>
             {products.map((product) => (
-              <ProductCard key={product._id} product={product} onAddToCart={addToCart} />
+              <ProductCard 
+                key={product._id} 
+                product={product} 
+                onAddToCart={addToCart}
+                onToggleWishlist={toggleWishlist}
+                isInWishlist={wishlistItems.has(product._id)}
+              />
             ))}
           </div>
 

@@ -383,6 +383,36 @@ export default function Chat() {
                         </div>
                       )}
                     </div>
+                    
+                    {/* Display order details if available */}
+                    {msg.orderDetails && (
+                      <div className="order-details-card">
+                        <h4>📋 Order Details</h4>
+                        {msg.orderDetails.orderNumber && (
+                          <p><strong>Order:</strong> {msg.orderDetails.orderNumber}</p>
+                        )}
+                        {msg.orderDetails.date && (
+                          <p><strong>Date:</strong> {new Date(msg.orderDetails.date).toLocaleDateString()}</p>
+                        )}
+                        {msg.orderDetails.total && (
+                          <p><strong>Total:</strong> ₹{msg.orderDetails.total.toFixed(2)}</p>
+                        )}
+                        {msg.orderDetails.status && (
+                          <p><strong>Status:</strong> <span className={`status-badge status-${msg.orderDetails.status}`}>{msg.orderDetails.status}</span></p>
+                        )}
+                        {msg.orderDetails.items && msg.orderDetails.items.length > 0 && (
+                          <div className="order-items-list">
+                            <p><strong>Items:</strong></p>
+                            {msg.orderDetails.items.map((item, idx) => (
+                              <div key={idx} className="order-item-mini">
+                                {item.name} x{item.quantity} - ₹{item.price.toFixed(2)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
                     <div className="message-time">{formatTime(msg.timestamp)}</div>
                   </div>
                   {msg.role === 'user' && (

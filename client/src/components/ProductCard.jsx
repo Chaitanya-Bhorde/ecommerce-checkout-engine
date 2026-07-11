@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function ProductCard({ product, onAddToCart }) {
+export default function ProductCard({ product, onAddToCart, onToggleWishlist, isInWishlist }) {
   const { user } = useAuth();
   const image = product.images && product.images.length > 0
     ? product.images[0]
@@ -105,13 +105,13 @@ export default function ProductCard({ product, onAddToCart }) {
         </div>
       </Link>
 
-      {onAddToCart && (
-        <div style={{ padding: '0 1.1rem 1.1rem' }}>
+      <div style={{ padding: '0 1.1rem 1.1rem', display: 'flex', gap: '0.5rem' }}>
+        {onAddToCart && (
           <button
             onClick={() => onAddToCart(product._id)}
             disabled={!inStock}
             style={{
-              width: '100%',
+              flex: 1,
               padding: '0.6rem',
               background: inStock ? '#4f46e5' : '#e5e7eb',
               color: inStock ? '#ffffff' : '#9ca3af',
@@ -124,8 +124,27 @@ export default function ProductCard({ product, onAddToCart }) {
           >
             {inStock ? 'Add to Cart' : 'Out of Stock'}
           </button>
-        </div>
-      )}
+        )}
+        {onToggleWishlist && (
+          <button
+            onClick={() => onToggleWishlist(product._id)}
+            style={{
+              padding: '0.6rem 0.8rem',
+              background: isInWishlist ? '#fce7f3' : '#f3f4f6',
+              color: isInWishlist ? '#db2777' : '#6b7280',
+              border: '1px solid',
+              borderColor: isInWishlist ? '#fbcfe8' : '#e5e7eb',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '1.1rem',
+              lineHeight: 1,
+            }}
+            title={isInWishlist ? 'Remove from Wishlist' : 'Add to Wishlist'}
+          >
+            {isInWishlist ? '❤️' : '🤍'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

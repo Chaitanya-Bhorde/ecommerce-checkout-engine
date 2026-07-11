@@ -13,7 +13,7 @@ console.log(`[llmConfig] Final AI_PROVIDER value: "${AI_PROVIDER}"`);
 /**
  * Call Groq API directly using fetch() - no SDK needed!
  */
-async function callGroq(messages) {
+async function callGroq(messages, maxTokens = 200, temperature = 0.7, timeout = 15000) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey || apiKey === 'your-groq-api-key-here') {
     throw new Error('GROQ_API_KEY not configured in .env');
@@ -28,10 +28,10 @@ async function callGroq(messages) {
       body: JSON.stringify({
         model: 'llama-3.1-8b-instant',
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 200,
+        temperature: temperature,
+        max_tokens: maxTokens,
       }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(timeout),
   });
 
   if (!response.ok) {
@@ -45,12 +45,18 @@ async function callGroq(messages) {
 
 /**
  * Call the AI LLM directly with messages
+ * @param {Array} messages - Array of {role, content} message objects
+ * @param {Object} options - Optional overrides (e.g. { maxTokens: 1000, temperature: 0.3 })
  */
-async function callLLM(messages) {
+async function callLLM(messages, options = {}) {
   console.log(`[llmConfig] callLLM() called with AI_PROVIDER="${AI_PROVIDER}"`);
+  const maxTokens = options.maxTokens || 200;
+  const temperature = options.temperature ?? 0.7;
+  const timeout = options.timeout || 15000;
+  
   switch (AI_PROVIDER) {
     case 'groq':
-      return await callGroq(messages);
+      return await callGroq(messages, maxTokens, temperature, timeout);
     case 'openai': {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey || apiKey === 'your-openai-api-key-here') {
@@ -65,10 +71,10 @@ async function callLLM(messages) {
         body: JSON.stringify({
           model: 'gpt-3.5-turbo',
           messages: messages,
-          temperature: 0.7,
-          max_tokens: 200,
+          temperature: temperature,
+          max_tokens: maxTokens,
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(timeout),
       });
       if (!response.ok) {
         const errorText = await response.text();
@@ -82,9 +88,9 @@ async function callLLM(messages) {
       const ollamaLLM = new ChatOllama({
         baseUrl: "http://localhost:11434",
         model: "llama3",
-        temperature: 0.7,
-        maxTokens: 200,
-        timeout: 5000,
+        temperature: temperature,
+        maxTokens: maxTokens,
+        timeout: timeout,
       });
       const response = await ollamaLLM.invoke(messages);
       return response.content;

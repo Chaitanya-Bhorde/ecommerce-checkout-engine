@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 
-// Simple UUID v4 generator
+// Generate proper UUID v4 using Web Crypto API
 const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
@@ -70,11 +74,13 @@ export default function Checkout({ onCartUpdate }) {
     city: '',
     state: '',
     pincode: '',
+    country: 'India', // Default country
   });
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [cart, setCart] = useState(null);
   const [fetchingCart, setFetchingCart] = useState(true);
   const [orderId, setOrderId] = useState(null);
+  const [addressCompleted, setAddressCompleted] = useState(false);
 
   useEffect(() => {
     const fetchCart = async () => {
@@ -102,6 +108,13 @@ export default function Checkout({ onCartUpdate }) {
     });
   };
 
+  // Check if all address fields are filled
+  useEffect(() => {
+    const isComplete = formData.fullName && formData.phone && formData.address && 
+                      formData.city && formData.state && formData.pincode;
+    setAddressCompleted(isComplete);
+  }, [formData]);
+
   const handleProceedToPayment = (e) => {
     e.preventDefault();
     setError('');
@@ -118,28 +131,85 @@ export default function Checkout({ onCartUpdate }) {
       return;
     }
 
+    // Double-check address is complete
+    if (!addressCompleted) {
+      setError('Please complete all address fields before placing order');
+      return;
+    }
+
     setError('');
     setLoading(true);
 
     try {
       const idempotencyKey = generateUUID();
+      
+      // Map frontend field names to backend field names
+      const shippingAddress = {
+        ...formData,
+        zipCode: formData.pincode, // Backend expects 'zipCode', not 'pincode'
+      };
+      
+      console.log('🔵 Creating order with:', { 
+        shippingAddress, 
+        paymentMethod: selectedPayment,
+        idempotencyKey 
+      });
+      
       const orderRes = await api.post('/orders', { 
-        shippingAddress: formData,
+        shippingAddress,
         paymentMethod: selectedPayment 
       }, {
         headers: {
           'Idempotency-Key': idempotencyKey
         }
       });
+      
+      console.log('🔵 Order response status:', orderRes.status);
+      console.log('🔵 Order response data:', JSON.stringify(orderRes.data, null, 2));
+      console.log('🔵 Order response data type:', typeof orderRes.data);
+      
       const order = orderRes.data;
       
-      if (!order || !order._id) {
-        setError('Order creation failed - no order ID received');
+      // Check if response has order ID
+      if (!order) {
+        console.error('❌ Order creation failed - no response data:', orderRes);
+        setError('Order creation failed - no response from server. Please try again.');
         setLoading(false);
         return;
       }
       
-      setOrderId(order._id);
+      // If order ID exists, use it
+      if (order._id) {
+        console.log('✅ Order created with ID:', order._id);
+        setOrderId(order._id);
+      } else if (order.success === false) {
+        // Backend returned an error
+        console.error('❌ Order creation failed:', order);
+        setError(order.message || 'Order creation failed. Please try again.');
+        setLoading(false);
+        return;
+      } else {
+        // Fallback: Fetch the most recent order for this user
+        console.warn('⚠️ Order created but no ID in response, fetching latest order...');
+        try {
+          const ordersRes = await api.get('/orders?page=1&limit=1');
+          console.log('🔵 Orders response:', ordersRes.data);
+          if (ordersRes.data && ordersRes.data.length > 0) {
+            const latestOrder = ordersRes.data[0];
+            console.log('✅ Fetched latest order ID:', latestOrder._id);
+            setOrderId(latestOrder._id);
+          } else {
+            setError('Order created but could not retrieve order ID. Please check orders page.');
+            setLoading(false);
+            return;
+          }
+        } catch (fetchErr) {
+          console.error('❌ Error fetching latest order:', fetchErr);
+          setError('Order created but could not retrieve order ID. Please check orders page.');
+          setLoading(false);
+          return;
+        }
+      }
 
       if (selectedPayment === 'razorpay') {
         const paymentRes = await api.post(`/payments/create/${order._id}`);
@@ -362,47 +432,49 @@ export default function Checkout({ onCartUpdate }) {
               </form>
             </div>
 
-            <div id="payment-section" className="section-card payment-section">
-              <h2 className="section-title">
-                <span className="title-icon">💳</span>
-                Select Payment Method
-              </h2>
-              <div className="payment-methods">
-                {PAYMENT_METHODS.map(method => (
-                  <div
-                    key={method.id}
-                    className={`payment-method-card ${selectedPayment === method.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedPayment(method.id)}
-                  >
-                    <div className="payment-radio">
-                      <div className="radio-circle">
-                        {selectedPayment === method.id && <div className="radio-dot"></div>}
+            {addressCompleted && (
+              <div id="payment-section" className="section-card payment-section">
+                <h2 className="section-title">
+                  <span className="title-icon">💳</span>
+                  Select Payment Method
+                </h2>
+                <div className="payment-methods">
+                  {PAYMENT_METHODS.map(method => (
+                    <div
+                      key={method.id}
+                      className={`payment-method-card ${selectedPayment === method.id ? 'selected' : ''}`}
+                      onClick={() => setSelectedPayment(method.id)}
+                    >
+                      <div className="payment-radio">
+                        <div className="radio-circle">
+                          {selectedPayment === method.id && <div className="radio-dot"></div>}
+                        </div>
+                      </div>
+                      <div className="payment-icon">{method.icon}</div>
+                      <div className="payment-info">
+                        <h3>{method.label}</h3>
+                        <p>{method.description}</p>
                       </div>
                     </div>
-                    <div className="payment-icon">{method.icon}</div>
-                    <div className="payment-info">
-                      <h3>{method.label}</h3>
-                      <p>{method.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
 
-              <button 
-                onClick={handlePlaceOrder}
-                className="btn-submit btn-place-order"
-                disabled={loading || !selectedPayment}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner"></span>
-                    Processing...
-                  </>
-                ) : (
-                  'Place Order'
-                )}
-              </button>
-            </div>
+                <button 
+                  onClick={handlePlaceOrder}
+                  className="btn-submit btn-place-order"
+                  disabled={loading || !selectedPayment}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner"></span>
+                      Processing...
+                    </>
+                  ) : (
+                    'Place Order'
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="summary-section">
