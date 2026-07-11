@@ -23,6 +23,10 @@ const { httpLogger } = require('./middleware/logger');
 
 const app = express();
 
+// Increase request size limit for base64 images (default is 100kb)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 // HTTP request logging (should be first to log all requests)
 app.use(httpLogger);
 
@@ -83,9 +87,10 @@ app.use('/api/', generalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// Request size limits
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// Request size limits (already set to 10mb above for base64 images)
+// Keeping these for other routes that don't need large limits
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Webhook route must be before express.json() — needs raw body for signature verification
 app.post('/api/webhooks/razorpay', express.raw({ type: 'application/json' }), handleRazorpayWebhook);

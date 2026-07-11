@@ -31,8 +31,15 @@ const validateProduct = [
     .withMessage('Images must be an array'),
   body('images.*')
     .optional()
-    .isURL()
-    .withMessage('Each image must be a valid URL'),
+    .custom((value) => {
+      // Accept both URLs and base64 data URLs
+      if (typeof value === 'string') {
+        if (value.startsWith('data:image')) return true; // Base64 image
+        if (/^https?:\/\//.test(value)) return true; // URL
+      }
+      return false;
+    })
+    .withMessage('Each image must be a valid URL or base64 data URL'),
   body('isActive')
     .optional()
     .isBoolean()
