@@ -18,6 +18,7 @@ const {
   deleteCategory,
 } = require('../controllers/categoryController');
 const { getLedgerEntries, getAllLedgerEntries } = require('../controllers/paymentController');
+const { validateOrderStatus } = require('../controllers/orderController');
 const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -169,7 +170,7 @@ router.get('/orders/:orderId', async (req, res) => {
   }
 });
 
-router.put('/orders/:orderId/status', updateOrderStatus);
+router.put('/orders/:orderId/status', validateOrderStatus, updateOrderStatus);
 
 // Products Management
 router.get('/products', async (req, res) => {
