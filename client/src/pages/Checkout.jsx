@@ -142,78 +142,12 @@ export default function Checkout({ onCartUpdate }) {
     setLoading(true);
 
     try {
-      const idempotencyKey = generateUUID();
-      
-      // Map frontend field names to backend field names
-      const shippingAddress = {
-        ...formData,
-        zipCode: formData.pincode, // Backend expects 'zipCode', not 'pincode'
-      };
-      
-      console.log('🔵 Creating order with:', { 
-        shippingAddress, 
-        paymentMethod: selectedPayment,
-        idempotencyKey 
-      });
-      
-      const orderRes = await api.post('/orders', { 
-        shippingAddress,
-        paymentMethod: selectedPayment 
-      }, {
-        headers: {
-          'Idempotency-Key': idempotencyKey
-        }
-      });
-      
-      console.log('🔵 Order response status:', orderRes.status);
-      console.log('🔵 Order response data:', JSON.stringify(orderRes.data, null, 2));
-      console.log('🔵 Order response data type:', typeof orderRes.data);
-      
-      const order = orderRes.data;
-      
-      // Check if response has order ID
-      if (!order) {
-        console.error('❌ Order creation failed - no response data:', orderRes);
-        setError('Order creation failed - no response from server. Please try again.');
-        setLoading(false);
-        return;
-      }
-      
-      // If order ID exists, use it
-      if (order._id) {
-        console.log('✅ Order created with ID:', order._id);
-        setOrderId(order._id);
-      } else if (order.success === false) {
-        // Backend returned an error
-        console.error('❌ Order creation failed:', order);
-        setError(order.message || 'Order creation failed. Please try again.');
-        setLoading(false);
-        return;
-      } else {
-        // Fallback: Fetch the most recent order for this user
-        console.warn('⚠️ Order created but no ID in response, fetching latest order...');
-        try {
-          const ordersRes = await api.get('/orders?page=1&limit=1');
-          console.log('🔵 Orders response:', ordersRes.data);
-          if (ordersRes.data && ordersRes.data.length > 0) {
-            const latestOrder = ordersRes.data[0];
-            console.log('✅ Fetched latest order ID:', latestOrder._id);
-            setOrderId(latestOrder._id);
-          } else {
-            setError('Order created but could not retrieve order ID. Please check orders page.');
-            setLoading(false);
-            return;
-          }
-        } catch (fetchErr) {
-          console.error('❌ Error fetching latest order:', fetchErr);
-          setError('Order created but could not retrieve order ID. Please check orders page.');
-          setLoading(false);
-          return;
-        }
-      }
-
       if (selectedPayment === 'razorpay') {
-        const paymentRes = await api.post(`/payments/create/${order._id}`);
+        // UPI Payment Flow: Open Razorpay first, verify payment, then create order
+        console.log('🔵 Initiating UPI payment...');
+        
+        // Create payment order
+        const paymentRes = await api.post('/payments/create');
         const paymentData = paymentRes.data;
 
         const options = {
@@ -221,17 +155,52 @@ export default function Checkout({ onCartUpdate }) {
           amount: paymentData.amount,
           currency: paymentData.currency,
           name: 'ShopEase',
-          description: `Order #${order._id.slice(-8)}`,
+          description: 'UPI Payment',
           order_id: paymentData.razorpayOrderId,
+          method: 'upi',
+          upi: { vpa: upiId },
           handler: async function (response) {
             try {
-              await api.post('/payments/verify', {
+              // Verify payment first
+              const verifyRes = await api.post('/payments/verify', {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
               });
-              handleOrderSuccess(order._id);
+              
+              console.log('✅ Payment verified:', verifyRes.data);
+              
+              // Now create the order after successful payment
+              const idempotencyKey = generateUUID();
+              
+              const shippingAddress = {
+                ...formData,
+                zipCode: formData.pincode,
+              };
+              
+              const orderRes = await api.post('/orders', { 
+                shippingAddress,
+                paymentMethod: selectedPayment,
+                paymentId: response.razorpay_payment_id,
+                orderId: response.razorpay_order_id
+              }, {
+                headers: {
+                  'Idempotency-Key': idempotencyKey
+                }
+              });
+              
+              const order = orderRes.data;
+              console.log('✅ Order created after payment:', order);
+              
+              if (order._id) {
+                setOrderId(order._id);
+                handleOrderSuccess(order._id);
+              } else {
+                setError('Payment successful but order creation failed. Please contact support.');
+                setLoading(false);
+              }
             } catch (err) {
+              console.error('❌ Payment verification failed:', err);
               setError('Payment verification failed. Please contact support.');
               setLoading(false);
             }
@@ -248,14 +217,39 @@ export default function Checkout({ onCartUpdate }) {
         const razorpay = new window.Razorpay(options);
         razorpay.open();
       } else {
-        handleOrderSuccess(order._id);
+        // COD: Create order directly without payment
+        const idempotencyKey = generateUUID();
+        
+        const shippingAddress = {
+          ...formData,
+          zipCode: formData.pincode,
+        };
+        
+        const orderRes = await api.post('/orders', { 
+          shippingAddress,
+          paymentMethod: selectedPayment 
+        }, {
+          headers: {
+            'Idempotency-Key': idempotencyKey
+          }
+        });
+        
+        const order = orderRes.data;
+        
+        if (order._id) {
+          setOrderId(order._id);
+          handleOrderSuccess(order._id);
+        } else {
+          setError('Order creation failed. Please try again.');
+          setLoading(false);
+        }
       }
 
       if (onCartUpdate) {
         onCartUpdate({ items: [], totalAmount: 0, totalItems: 0 });
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create order. Please try again.');
+      setError(err.response?.data?.message || 'Failed to process order. Please try again.');
       setLoading(false);
     }
   };

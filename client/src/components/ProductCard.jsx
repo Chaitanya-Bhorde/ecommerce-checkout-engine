@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function ProductCard({ product, onAddToCart, onToggleWishlist, isInWishlist }) {
+export default function ProductCard({ product, onAddToCart, onToggleWishlist, isInWishlist, isInCart }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const image = product.images && product.images.length > 0
@@ -107,7 +107,7 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
       </Link>
 
       <div style={{ padding: '0 1.1rem 1.1rem', display: 'flex', gap: '0.5rem' }} onClick={(e) => e.preventDefault()}>
-        {onAddToCart && inStock && (
+        {onAddToCart && inStock && !isInCart && (
           <button
             onClick={(e) => {
               e.preventDefault();
@@ -132,6 +132,24 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
             }}
           >
             Add to Cart
+          </button>
+        )}
+        {onAddToCart && inStock && isInCart && (
+          <button
+            disabled
+            style={{
+              flex: 1,
+              padding: '0.6rem',
+              background: '#10b981',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'default',
+              fontSize: '0.9rem',
+              fontWeight: '600',
+            }}
+          >
+            ✓ In Cart
           </button>
         )}
         {onAddToCart && !inStock && (

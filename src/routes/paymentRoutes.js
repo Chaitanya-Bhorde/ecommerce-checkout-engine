@@ -11,6 +11,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 router.use(protect);
 
+router.post('/create', createPaymentOrder);
 router.post('/create/:orderId', createPaymentOrder);
 router.post('/verify', verifyPayment);
 router.get('/status/:orderId', getPaymentStatus);

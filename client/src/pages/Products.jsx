@@ -18,8 +18,26 @@ export default function Products() {
   const [searchTerm, setSearchTerm] = useState(filters.search);
   const [loading, setLoading] = useState(true);
   const [wishlistItems, setWishlistItems] = useState(new Set());
+  const [cartItems, setCartItems] = useState(new Set());
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Fetch user's cart to show which products are already in it
+  useEffect(() => {
+    if (!user) return;
+    const fetchCart = async () => {
+      try {
+        const res = await api.get('/cart');
+        if (res.data && res.data.items) {
+          const ids = new Set(res.data.items.map(item => item.product?._id));
+          setCartItems(ids);
+        }
+      } catch (err) {
+        // Silently fail - cart is not critical
+      }
+    };
+    fetchCart();
+  }, [user]);
 
   // Fetch user's wishlist to show which products are already in it
   useEffect(() => {
@@ -137,6 +155,7 @@ export default function Products() {
     }
     try {
       await api.post('/cart', { productId, quantity: 1 });
+      setCartItems(prev => new Set(prev).add(productId));
       alert('Added to cart!');
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to add to cart');
@@ -250,6 +269,7 @@ export default function Products() {
                 onAddToCart={addToCart}
                 onToggleWishlist={toggleWishlist}
                 isInWishlist={wishlistItems.has(product._id)}
+                isInCart={cartItems.has(product._id)}
               />
             ))}
           </div>

@@ -5,48 +5,71 @@ const { createRazorpayOrder, verifyPaymentSignature } = require('../config/razor
 
 const createPaymentOrder = async (req, res) => {
   try {
-    const order = await Order.findOne({
-      _id: req.params.orderId,
-      user: req.user._id,
-      status: 'pending',
-    });
+    let order;
+    let orderId = req.params.orderId;
 
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found or already processed' });
+    // If orderId is provided, fetch the existing order
+    if (orderId) {
+      order = await Order.findOne({
+        _id: orderId,
+        user: req.user._id,
+        status: 'pending',
+      });
+
+      if (!order) {
+        return res.status(404).json({ message: 'Order not found or already processed' });
+      }
+
+      if (order.payment.razorpayOrderId) {
+        return res.status(400).json({ message: 'Payment already initiated for this order' });
+      }
     }
 
-    if (order.payment.razorpayOrderId) {
-      return res.status(400).json({ message: 'Payment already initiated for this order' });
+    // Get cart total if no order exists yet
+    const Cart = require('../models/Cart');
+    const cart = await Cart.findOne({ user: req.user._id });
+    
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({ message: 'Cart is empty' });
     }
 
+    const subtotal = cart.totalAmount;
+    const tax = subtotal * 0.18;
+    const shipping = subtotal >= 500 ? 0 : 40;
+    const total = subtotal + tax + shipping;
+
+    // Create Razorpay order
     const razorpayOrder = await createRazorpayOrder(
-      order.total,
+      total,
       'INR',
-      `order_${order._id}`
+      orderId ? `order_${orderId}` : `cart_${req.user._id}_${Date.now()}`
     );
 
-    order.payment.method = 'razorpay';
-    order.payment.razorpayOrderId = razorpayOrder.id;
-    await order.save();
+    // If order exists, update it with payment info
+    if (order) {
+      order.payment.method = 'razorpay';
+      order.payment.razorpayOrderId = razorpayOrder.id;
+      await order.save();
 
-    await Ledger.create({
-      order: order._id,
-      user: req.user._id,
-      type: 'payment',
-      amount: order.total,
-      currency: 'INR',
-      paymentMethod: 'razorpay',
-      razorpayOrderId: razorpayOrder.id,
-      status: 'pending',
-      description: `Payment initiated for order ${order._id}`,
-    });
+      await Ledger.create({
+        order: order._id,
+        user: req.user._id,
+        type: 'payment',
+        amount: total,
+        currency: 'INR',
+        paymentMethod: 'razorpay',
+        razorpayOrderId: razorpayOrder.id,
+        status: 'pending',
+        description: `Payment initiated for order ${order._id}`,
+      });
+    }
 
     res.json({
       razorpayOrderId: razorpayOrder.id,
       amount: razorpayOrder.amount,
       currency: razorpayOrder.currency,
       keyId: process.env.RAZORPAY_KEY_ID,
-      orderId: order._id,
+      orderId: order ? order._id : null,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
