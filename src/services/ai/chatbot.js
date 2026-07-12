@@ -320,7 +320,16 @@ CURRENT USER:
 - Role: ${userRole}
 - Orders: ${userOrders.length > 0 ? userOrders.length + ' orders placed' : 'New customer (no orders yet)'}\n\n`;
 
-    systemPrompt += `DATABASE STATS:\n- Total Orders: ${stats.totalOrders}\n- Pending: ${stats.pendingOrders}\n- Delivered: ${stats.deliveredOrders}\n- Cancelled: ${stats.cancelledOrders}\n- Products: ${stats.totalProducts}\n- Users: ${stats.totalUsers}\n\n`;
+    systemPrompt += `DATABASE STATS:\n- Total Orders: ${stats.totalOrders}\n`;
+    // Add all status counts
+    if (stats.statusBreakdown) {
+      Object.entries(stats.statusBreakdown).forEach(([status, count]) => {
+        systemPrompt += `- ${status}: ${count}\n`;
+      });
+    } else {
+      systemPrompt += `- Pending: ${stats.pendingOrders}\n- Delivered: ${stats.deliveredOrders}\n- Cancelled: ${stats.cancelledOrders}\n`;
+    }
+    systemPrompt += `- Products: ${stats.totalProducts}\n- Users: ${stats.totalUsers}\n\n`;
 
     if (relevantDocs.length > 0) {
       systemPrompt += `KNOWLEDGE BASE:\n`;
