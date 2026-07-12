@@ -137,6 +137,17 @@ const primaryButtonStyle = {
             Create one
           </Link>
         </p>
+        
+        <p style={{
+          textAlign: 'center',
+          marginTop: '0.75rem',
+          fontSize: '0.9rem',
+          color: '#6b7280',
+        }}>
+          <Link to="/forgot-password" style={{ fontWeight: '600', color: '#4f46e5' }}>
+            Forgot Password?
+          </Link>
+        </p>
       </div>
     </div>
   );
