@@ -460,10 +460,31 @@ export default function Checkout({ onCartUpdate }) {
                   ))}
                 </div>
 
+                {selectedPayment === 'razorpay' && (
+                  <div style={{ marginTop: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '8px' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}>
+                      Enter Your UPI ID:
+                    </label>
+                    <input
+                      type="text"
+                      value={upiId}
+                      onChange={(e) => setUpiId(e.target.value)}
+                      placeholder="e.g., aman@paytm, 9876543210@ybl"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '1rem'
+                      }}
+                    />
+                  </div>
+                )}
+
                 <button 
                   onClick={handlePlaceOrder}
                   className="btn-submit btn-place-order"
-                  disabled={loading || !selectedPayment}
+                  disabled={loading || !selectedPayment || (selectedPayment === 'razorpay' && !upiId)}
                 >
                   {loading ? (
                     <>
