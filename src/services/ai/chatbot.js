@@ -283,13 +283,34 @@ async function chat(userId, message, context = {}, conversationId = null) {
     let categoryAnalytics = [];
     
     if (userRole === 'admin') {
-      const [popular, categories] = await Promise.all([
+      const [popular, categories, allOrders, allUsers] = await Promise.all([
         getPopularProducts(10),
         getCategoryAnalytics(),
+        // Get all orders with user info for admin to see
+        Order.find({})
+          .populate('user', 'name email')
+          .sort({ createdAt: -1 })
+          .limit(20)
+          .select('_id total status createdAt items user'),
+        // Get all customers who placed orders
+        Order.distinct('user').then(userIds => 
+          User.find({ _id: { $in: userIds.filter(id => id) } }).select('name email')
+        ),
       ]);
       popularProducts = popular;
       categoryAnalytics = categories;
+      userOrders = allOrders.map(order => ({
+        id: order._id,
+        total: order.total,
+        status: order.status,
+        date: order.createdAt,
+        items: order.items.length,
+        customerName: order.user?.name || 'Guest',
+        customerEmail: order.user?.email || 'N/A',
+      }));
+      
       console.log(`[Chatbot] Admin analytics - Popular products: ${popularProducts.length}, Categories: ${categoryAnalytics.length}`);
+      console.log(`[Chatbot] Admin orders - ${userOrders.length} total, Customers who ordered: ${allUsers.length}`);
     } else {
       userOrders = await getUserOrders(normalizedUserId, orderLimit);
     }
@@ -329,7 +350,7 @@ CURRENT USER:
     } else {
       systemPrompt += `- Pending: ${stats.pendingOrders}\n- Delivered: ${stats.deliveredOrders}\n- Cancelled: ${stats.cancelledOrders}\n`;
     }
-    systemPrompt += `- Products: ${stats.totalProducts}\n- Users: ${stats.totalUsers}\n\n`;
+    systemPrompt += `- Products: ${stats.totalProducts}\n- Total Registered Users: ${stats.totalUsers}\n\n`;
 
     if (relevantDocs.length > 0) {
       systemPrompt += `KNOWLEDGE BASE:\n`;
