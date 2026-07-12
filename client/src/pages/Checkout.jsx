@@ -82,6 +82,7 @@ export default function Checkout({ onCartUpdate }) {
   const [orderId, setOrderId] = useState(null);
   const [addressCompleted, setAddressCompleted] = useState(false);
   const [upiId, setUpiId] = useState('');
+  const [upiError, setUpiError] = useState('');
 
   useEffect(() => {
     const fetchCart = async () => {
@@ -116,6 +117,22 @@ export default function Checkout({ onCartUpdate }) {
     setAddressCompleted(isComplete);
   }, [formData]);
 
+  // Validate UPI ID format
+  const validateUpiId = (upi) => {
+    setUpiError('');
+    if (!upi || upi.trim() === '') {
+      setUpiError('Please enter your UPI ID');
+      return false;
+    }
+    // UPI ID format: username@provider (e.g., aman@paytm, 9876543210@ybl, name@gpay)
+    const upiRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+$/;
+    if (!upiRegex.test(upi)) {
+      setUpiError('Invalid UPI ID format. Use format: yourname@paytm or 9876543210@ybl');
+      return false;
+    }
+    return true;
+  };
+
   const handleProceedToPayment = (e) => {
     e.preventDefault();
     setError('');
@@ -136,6 +153,13 @@ export default function Checkout({ onCartUpdate }) {
     if (!addressCompleted) {
       setError('Please complete all address fields before placing order');
       return;
+    }
+
+    // Validate UPI ID if Razorpay is selected
+    if (selectedPayment === 'razorpay') {
+      if (!validateUpiId(upiId)) {
+        return;
+      }
     }
 
     setError('');
@@ -456,22 +480,34 @@ export default function Checkout({ onCartUpdate }) {
 
                 {selectedPayment === 'razorpay' && (
                   <div style={{ marginTop: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '8px' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', color: '#374151' }}>
                       Enter Your UPI ID:
                     </label>
                     <input
                       type="text"
                       value={upiId}
-                      onChange={(e) => setUpiId(e.target.value)}
-                      placeholder="e.g., aman@paytm, 9876543210@ybl"
+                      onChange={(e) => {
+                        setUpiId(e.target.value);
+                        setUpiError('');
+                      }}
+                      placeholder="e.g., aman@paytm, 9876543210@ybl, name@gpay"
                       style={{
                         width: '100%',
                         padding: '0.75rem',
-                        border: '1px solid #d1d5db',
+                        border: upiError ? '1px solid #dc2626' : '1px solid #d1d5db',
                         borderRadius: '8px',
-                        fontSize: '1rem'
+                        fontSize: '1rem',
+                        outline: 'none'
                       }}
                     />
+                    {upiError && (
+                      <p style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: '0.5rem', marginBottom: 0 }}>
+                        ⚠️ {upiError}
+                      </p>
+                    )}
+                    <p style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: 0 }}>
+                      💡 Enter any UPI ID (e.g., aman@paytm, 9876543210@ybl)
+                    </p>
                   </div>
                 )}
 
