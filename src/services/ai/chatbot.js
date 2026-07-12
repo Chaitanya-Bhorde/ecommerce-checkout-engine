@@ -364,6 +364,15 @@ CURRENT USER:
       systemPrompt += `Total Orders: ${stats.totalOrders} (Pending: ${stats.pendingOrders}, Delivered: ${stats.deliveredOrders}, Cancelled: ${stats.cancelledOrders})\n`;
       systemPrompt += `Total Products: ${stats.totalProducts}\n\n`;
       
+      // Show all orders with customer names for admin
+      if (userOrders.length > 0) {
+        systemPrompt += `\nALL ORDERS WITH CUSTOMER DETAILS:\n`;
+        userOrders.forEach((o, i) => {
+          systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status} - Customer: ${o.customerName} (${o.customerEmail}) - Date: ${new Date(o.date).toLocaleDateString()}\n`;
+        });
+        systemPrompt += `\n`;
+      }
+      
       if (popularProducts.length > 0) {
         systemPrompt += `TOP SELLING PRODUCTS (by quantity sold):\n`;
         popularProducts.forEach((p, i) => {
