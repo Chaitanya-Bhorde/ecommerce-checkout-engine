@@ -59,10 +59,12 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Rate limiting
+// Rate limiting - DISABLED for development to prevent "Too many requests" errors
+// To enable in production, uncomment the lines below and set NODE_ENV=production
+/*
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.'
@@ -72,8 +74,8 @@ const generalLimiter = rateLimit({
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Limit each IP to 50 login/register requests per windowMs (increased for development)
+  windowMs: 15 * 60 * 1000,
+  max: 50,
   message: {
     success: false,
     message: 'Too many authentication attempts, please try again after 15 minutes.'
@@ -82,10 +84,12 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply rate limiting
-app.use('/api/', generalLimiter);
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/register', authLimiter);
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/', generalLimiter);
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+}
+*/
 
 // Request size limits (already set to 10mb above for base64 images)
 // Keeping these for other routes that don't need large limits
