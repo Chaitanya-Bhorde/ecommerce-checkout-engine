@@ -169,63 +169,7 @@ router.get('/orders/:orderId', async (req, res) => {
   }
 });
 
-router.put('/orders/:orderId/status', async (req, res) => {
-  try {
-    const { status, note } = req.body;
-
-    const validTransitions = {
-      pending: ['confirmed', 'cancelled'],
-      confirmed: ['processing', 'cancelled'],
-      processing: ['shipped', 'cancelled'],
-      shipped: ['out_for_delivery', 'cancelled'],
-      out_for_delivery: ['delivered', 'cancelled'],
-      delivered: ['received', 'refunded'],
-      received: [],
-      cancelled: [],
-      refunded: [],
-    };
-
-    const statusProgressMap = {
-      pending: 0,
-      confirmed: 25,
-      processing: 50,
-      shipped: 50,
-      out_for_delivery: 75,
-      delivered: 100,
-      received: 100,
-      cancelled: 0,
-      refunded: 0,
-    };
-
-    const order = await Order.findById(req.params.orderId);
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    const allowedTransitions = validTransitions[order.status];
-    if (!allowedTransitions.includes(status)) {
-      return res.status(400).json({
-        message: `Cannot transition from ${order.status} to ${status}`,
-      });
-    }
-
-    order.status = status;
-    order.deliveryProgress = statusProgressMap[status] || 0;
-    order.statusHistory.push({
-      status,
-      changedAt: new Date(),
-      changedBy: req.user._id,
-      note: note || '',
-      deliveryProgress: order.deliveryProgress,
-    });
-
-    await order.save();
-
-    res.json(order);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+router.put('/orders/:orderId/status', updateOrderStatus);
 
 // Products Management
 router.get('/products', async (req, res) => {

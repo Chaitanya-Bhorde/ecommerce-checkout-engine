@@ -328,7 +328,8 @@ const updateOrderStatus = async (req, res) => {
       refunded: 0,
     };
 
-    const order = await Order.findById(req.params.id);
+    const orderId = req.params.id || req.params.orderId;
+    const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
