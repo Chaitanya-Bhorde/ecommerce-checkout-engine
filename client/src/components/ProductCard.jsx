@@ -106,10 +106,12 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
         </div>
       </Link>
 
-      <div style={{ padding: '0 1.1rem 1.1rem', display: 'flex', gap: '0.5rem' }}>
-        {onAddToCart && (
+      <div style={{ padding: '0 1.1rem 1.1rem', display: 'flex', gap: '0.5rem' }} onClick={(e) => e.preventDefault()}>
+        {onAddToCart && inStock && (
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               if (!user) {
                 alert('Please login to add items to cart');
                 navigate('/login');
@@ -117,20 +119,37 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
               }
               onAddToCart(product._id);
             }}
-            disabled={!inStock}
             style={{
               flex: 1,
               padding: '0.6rem',
-              background: inStock ? '#4f46e5' : '#e5e7eb',
-              color: inStock ? '#ffffff' : '#9ca3af',
+              background: '#4f46e5',
+              color: '#ffffff',
               border: 'none',
               borderRadius: '8px',
-              cursor: inStock ? 'pointer' : 'not-allowed',
+              cursor: 'pointer',
               fontSize: '0.9rem',
               fontWeight: '600',
             }}
           >
-            {inStock ? 'Add to Cart' : 'Out of Stock'}
+            Add to Cart
+          </button>
+        )}
+        {onAddToCart && !inStock && (
+          <button
+            disabled
+            style={{
+              flex: 1,
+              padding: '0.6rem',
+              background: '#e5e7eb',
+              color: '#9ca3af',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'not-allowed',
+              fontSize: '0.9rem',
+              fontWeight: '600',
+            }}
+          >
+            Out of Stock
           </button>
         )}
         {onToggleWishlist && (
