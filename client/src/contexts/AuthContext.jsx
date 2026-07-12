@@ -11,7 +11,9 @@ export const AuthProvider = ({ children }) => {
     const fetchUser = async () => {
       try {
         const res = await api.get('/auth/me');
-        setUser(res.data);
+        // Handle both flat format {_id, name, email, role} and nested format {success: true, user: {...}}
+        const userData = res.data.user || res.data;
+        setUser(userData);
       } catch (err) {
         setUser(null);
       } finally {
