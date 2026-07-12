@@ -58,7 +58,7 @@ const CITIES_BY_STATE = {
 };
 
 const PAYMENT_METHODS = [
-  { id: 'razorpay', label: 'Credit/Debit Card / UPI', icon: '💳', description: 'Pay securely with Razorpay' },
+  { id: 'razorpay', label: 'UPI / PhonePe / GPay / Paytm', icon: '�', description: 'Pay instantly with UPI' },
   { id: 'cod', label: 'Cash on Delivery', icon: '💵', description: 'Pay when you receive' },
 ];
 
@@ -81,6 +81,7 @@ export default function Checkout({ onCartUpdate }) {
   const [fetchingCart, setFetchingCart] = useState(true);
   const [orderId, setOrderId] = useState(null);
   const [addressCompleted, setAddressCompleted] = useState(false);
+  const [upiId, setUpiId] = useState('');
 
   useEffect(() => {
     const fetchCart = async () => {
