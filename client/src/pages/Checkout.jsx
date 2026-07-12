@@ -273,6 +273,9 @@ export default function Checkout({ onCartUpdate }) {
         onCartUpdate({ items: [], totalAmount: 0, totalItems: 0 });
       }
     } catch (err) {
+      console.error('❌ Order processing failed:', err);
+      console.error('❌ Error response:', err.response?.data);
+      console.error('❌ Error message:', err.message);
       setError(err.response?.data?.message || 'Failed to process order. Please try again.');
       setLoading(false);
     }
