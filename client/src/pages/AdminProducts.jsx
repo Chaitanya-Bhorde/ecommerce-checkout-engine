@@ -95,16 +95,23 @@ export default function AdminProducts() {
         name: formData.name,
         description: formData.description,
         price: Number(formData.price),
-        stock: Number(formData.stock),
         category: categoryId,
         images: allImages,
         isActive: formData.isActive,
       };
 
+      // For new product, set initial stock
+      // For existing product, use stock increment if provided
       if (editingProduct) {
+        if (formData.stockIncrement && Number(formData.stockIncrement) > 0) {
+          productData.stockIncrement = Number(formData.stockIncrement);
+        }
+        // Don't send stock field for editing - backend will handle increment
         await api.put(`/products/${editingProduct._id}`, productData);
         alert('Product updated successfully!');
       } else {
+        // For new product, set initial stock
+        productData.stock = Number(formData.stock);
         await api.post('/products', productData);
         alert('Product created successfully!');
       }
@@ -152,6 +159,7 @@ export default function AdminProducts() {
       category: product.category?._id || '',
       newCategory: '',
       stock: product.stock.toString(),
+      stockIncrement: '', // For restocking
       uploadedImages: uploadedImages,
       imageUrls: imageUrls,
       isActive: product.isActive,
@@ -428,15 +436,38 @@ export default function AdminProducts() {
                     />
                   </div>
                   <div className="form-group">
-                    <label>Stock *</label>
+                    <label>Stock Quantity *</label>
                     <input
                       type="number"
                       value={formData.stock}
                       onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
                       required
+                      disabled={!!editingProduct}
+                      style={editingProduct ? { background: '#f3f4f6', cursor: 'not-allowed' } : {}}
                     />
+                    {editingProduct && (
+                      <small style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
+                        Current stock: {editingProduct.stock} units
+                      </small>
+                    )}
                   </div>
                 </div>
+
+                {editingProduct && (
+                  <div className="form-group">
+                    <label>Add Stock (Restock)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.stockIncrement}
+                      onChange={(e) => setFormData({ ...formData, stockIncrement: e.target.value })}
+                      placeholder="Enter quantity to add"
+                    />
+                    <small style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
+                      Enter quantity to add to existing stock (leave empty to keep current stock)
+                    </small>
+                  </div>
+                )}
 
                 <div className="form-group">
                   <label>Product Images</label>

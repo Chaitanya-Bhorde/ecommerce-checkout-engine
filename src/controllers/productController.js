@@ -165,16 +165,39 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    }).populate('category', 'name');
+    const { stockIncrement, ...updateData } = req.body;
 
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
+    // If stockIncrement is provided, add it to current stock (restock)
+    if (stockIncrement && Number(stockIncrement) > 0) {
+      const product = await Product.findById(req.params.id);
+      if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
+      }
+      
+      // Atomically increment stock
+      const updatedProduct = await Product.findByIdAndUpdate(
+        req.params.id,
+        { 
+          $inc: { stock: Number(stockIncrement) },
+          ...updateData 
+        },
+        { new: true, runValidators: true }
+      ).populate('category', 'name');
+      
+      res.json(updatedProduct);
+    } else {
+      // Normal update without stock increment
+      const product = await Product.findByIdAndUpdate(req.params.id, updateData, {
+        new: true,
+        runValidators: true,
+      }).populate('category', 'name');
+
+      if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
+      }
+
+      res.json(product);
     }
-
-    res.json(product);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
