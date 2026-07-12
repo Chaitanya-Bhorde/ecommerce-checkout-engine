@@ -116,18 +116,32 @@ async function getProductRecommendations(query = '') {
 
 async function getDatabaseStats() {
   try {
-    const [totalOrders, totalProducts, totalUsers, cancelledOrders, deliveredOrders] = await Promise.all([
+    const [totalOrders, totalProducts, totalUsers] = await Promise.all([
       Order.countDocuments(),
       Product.countDocuments({ isActive: true }),
       User.countDocuments(),
-      Order.countDocuments({ status: 'cancelled' }),
-      Order.countDocuments({ status: 'delivered' }),
     ]);
-    const pendingOrders = await Order.countDocuments({ status: { $in: ['pending', 'processing', 'shipped'] } });
-    return { totalOrders, totalProducts, totalUsers, cancelledOrders, deliveredOrders, pendingOrders };
+    
+    // Count orders by each status
+    const statusCounts = await Order.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+    
+    const statusMap = {};
+    statusCounts.forEach(s => { statusMap[s._id] = s.count; });
+    
+    return { 
+      totalOrders, 
+      totalProducts, 
+      totalUsers, 
+      cancelledOrders: statusMap['cancelled'] || 0, 
+      deliveredOrders: statusMap['delivered'] || 0, 
+      pendingOrders: (statusMap['pending'] || 0) + (statusMap['confirmed'] || 0) + (statusMap['processing'] || 0) + (statusMap['shipped'] || 0) + (statusMap['out_for_delivery'] || 0),
+      statusBreakdown: statusMap // Full breakdown of all statuses
+    };
   } catch (error) {
     console.error('Error fetching stats:', error);
-    return { totalOrders: 0, totalProducts: 0, totalUsers: 0, cancelledOrders: 0, deliveredOrders: 0, pendingOrders: 0 };
+    return { totalOrders: 0, totalProducts: 0, totalUsers: 0, cancelledOrders: 0, deliveredOrders: 0, pendingOrders: 0, statusBreakdown: {} };
   }
 }
 
