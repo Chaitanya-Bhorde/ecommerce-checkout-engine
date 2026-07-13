@@ -197,10 +197,19 @@ export default function Checkout({ onCartUpdate }) {
               // Now create the order after successful payment
               const idempotencyKey = generateUUID();
               
+              // Format phone number to remove spaces and special characters for validation
+              const formattedPhone = formData.phone.replace(/[\s+()-]/g, '');
+              
               const shippingAddress = {
-                ...formData,
+                address: formData.address,
+                city: formData.city,
+                state: formData.state,
                 zipCode: formData.pincode,
+                country: formData.country,
+                phone: formattedPhone,
               };
+              
+              console.log('📦 Creating order with shippingAddress:', shippingAddress);
               
               const orderRes = await api.post('/orders', { 
                 shippingAddress,
@@ -244,10 +253,19 @@ export default function Checkout({ onCartUpdate }) {
         // COD: Create order directly without payment
         const idempotencyKey = generateUUID();
         
+        // Format phone number to remove spaces and special characters for validation
+        const formattedPhone = formData.phone.replace(/[\s+()-]/g, '');
+        
         const shippingAddress = {
-          ...formData,
+          address: formData.address,
+          city: formData.city,
+          state: formData.state,
           zipCode: formData.pincode,
+          country: formData.country,
+          phone: formattedPhone,
         };
+        
+        console.log('📦 Creating COD order with shippingAddress:', shippingAddress);
         
         const orderRes = await api.post('/orders', { 
           shippingAddress,
