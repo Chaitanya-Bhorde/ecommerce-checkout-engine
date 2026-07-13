@@ -34,9 +34,11 @@ const createPaymentOrder = async (req, res) => {
     }
 
     const subtotal = cart.totalAmount;
-    const tax = subtotal * 0.18;
+    const tax = Math.round(subtotal * 0.18);
     const shipping = subtotal >= 500 ? 0 : 40;
     const total = subtotal + tax + shipping;
+
+    console.log('💳 Creating Razorpay order:', { subtotal, tax, shipping, total, userId: req.user._id });
 
     // Create Razorpay order
     const razorpayOrder = await createRazorpayOrder(
@@ -72,7 +74,11 @@ const createPaymentOrder = async (req, res) => {
       orderId: order ? order._id : null,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('❌ Payment creation error:', error);
+    res.status(500).json({ 
+      message: 'Failed to create payment order',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
