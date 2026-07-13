@@ -40,6 +40,13 @@ const createPaymentOrder = async (req, res) => {
 
     console.log('💳 Creating Razorpay order:', { subtotal, tax, shipping, total, userId: req.user._id });
 
+    console.log('💳 Creating Razorpay order with options:', {
+      amount: total,
+      currency: 'INR',
+      receipt: orderId ? `order_${orderId}` : `cart_${req.user._id}_${Date.now()}`,
+      keyId: process.env.RAZORPAY_KEY_ID ? '***' + process.env.RAZORPAY_KEY_ID.slice(-4) : 'NOT SET'
+    });
+
     // Create Razorpay order
     const razorpayOrder = await createRazorpayOrder(
       total,
@@ -75,6 +82,14 @@ const createPaymentOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Payment creation error:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      userId: req.user?._id,
+      cartExists: !!cart
+    });
     res.status(500).json({ 
       message: 'Failed to create payment order',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
