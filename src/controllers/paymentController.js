@@ -60,17 +60,22 @@ const createPaymentOrder = async (req, res) => {
       order.payment.razorpayOrderId = razorpayOrder.id;
       await order.save();
 
-      await Ledger.create({
-        order: order._id,
-        user: req.user._id,
-        type: 'payment',
-        amount: total,
-        currency: 'INR',
-        paymentMethod: 'razorpay',
-        razorpayOrderId: razorpayOrder.id,
-        status: 'pending',
-        description: `Payment initiated for order ${order._id}`,
-      });
+      try {
+        await Ledger.create({
+          order: order._id,
+          user: req.user._id,
+          type: 'payment',
+          amount: total,
+          currency: 'INR',
+          paymentMethod: 'razorpay',
+          razorpayOrderId: razorpayOrder.id,
+          status: 'pending',
+          description: `Payment initiated for order ${order._id}`,
+        });
+      } catch (ledgerError) {
+        console.error('⚠️  Ledger creation failed (non-critical):', ledgerError);
+        // Continue even if ledger creation fails
+      }
     }
 
     res.json({
