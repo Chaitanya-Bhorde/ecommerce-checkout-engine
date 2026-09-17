@@ -3,8 +3,8 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Cart = require('../models/Cart');
 const User = require('../models/User');
-const Idempotency = require('../models/Idempotency');
 const Notification = require('../models/Notification');
+const Ledger = require('../models/Ledger');
 const { body, validationResult } = require('express-validator');
 
 const validateOrderCreation = [
@@ -50,7 +50,7 @@ const validateOrderCreation = [
   body('paymentMethod')
     .optional()
     .isIn(['razorpay', 'cod'])
-    .withMessage('Payment method must be either razorpay or cod')
+    .withMessage('Invalid payment method')
 ];
 
 const validateOrderStatus = [
@@ -68,12 +68,8 @@ const validateOrderStatus = [
 ];
 
 const createOrder = async (req, res) => {
-  const idempotencyKey = req.headers['idempotency-key'];
-
-  const existing = await Idempotency.findOne({ key: idempotencyKey, user: req.user._id });
-  if (existing) {
-    return res.status(existing.response.statusCode).json(existing.response.body);
-  }
+  // Idempotency is enforced solely by idempotencyMiddleware (mounted on
+  // POST /api/orders) — the single source of truth. No duplicate pre-check here.
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -102,11 +98,19 @@ const createOrder = async (req, res) => {
         });
       }
 
-      if (product.stock < cartItem.quantity) {
+      // Atomic stock guard: the conditional decrement only matches when enough
+      // stock exists, so concurrent checkouts cannot oversell inventory.
+      const decremented = await Product.findOneAndUpdate(
+        { _id: product._id, stock: { $gte: cartItem.quantity } },
+        { $inc: { stock: -cartItem.quantity } },
+        { session, new: true }
+      );
+
+      if (!decremented) {
         await session.abortTransaction();
         session.endSession();
         return res.status(400).json({
-          message: `Insufficient stock for ${product.name}. Available: ${product.stock}`,
+          message: `Insufficient stock for ${product.name}`,
         });
       }
 
@@ -120,12 +124,6 @@ const createOrder = async (req, res) => {
         price: product.price,
         image: product.images && product.images.length > 0 ? product.images[0] : null,
       });
-
-      await Product.findByIdAndUpdate(
-        product._id,
-        { $inc: { stock: -cartItem.quantity } },
-        { session }
-      );
     }
 
     const tax = Math.round(subtotal * 0.18);
@@ -163,14 +161,33 @@ const createOrder = async (req, res) => {
     );
 
     cart.items = [];
+    cart.pendingPayment = { razorpayOrderId: null, amount: null, initiatedAt: null, settled: true };
     await cart.save({ session });
+
+    // COD ledger entry: COD orders are financial events and must appear in the
+    // ledger. Online payments get their pending entry at /payments/create and
+    // complete it at /payments/verify — the two paths stay consistent.
+    await Ledger.create(
+      [
+        {
+          order: order._id,
+          user: req.user._id,
+          type: 'payment',
+          amount: total,
+          currency: 'INR',
+          paymentMethod: 'cod',
+          status: 'pending',
+          description: `COD order ${order._id} — payment due on delivery`,
+        },
+      ],
+      { session }
+    );
 
     await session.commitTransaction();
     session.endSession();
 
     const populatedOrder = await Order.findById(order._id).populate('items.product', 'name price images');
 
-    // Send notification to admin about new order
     try {
       const adminUsers = await User.find({ role: 'admin' });
       for (const admin of adminUsers) {
@@ -190,7 +207,8 @@ const createOrder = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    res.status(500).json({ message: error.message });
+    console.error('Order creation error:', error);
+    res.status(500).json({ message: 'Order could not be created' });
   }
 };
 
@@ -291,7 +309,6 @@ const getAllOrders = async (req, res) => {
 
 const updateOrderStatus = async (req, res) => {
   try {
-    // Validate input
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
@@ -315,7 +332,6 @@ const updateOrderStatus = async (req, res) => {
       refunded: [],
     };
 
-    // Map status to delivery progress
     const statusProgressMap = {
       pending: 0,
       confirmed: 25,
@@ -353,7 +369,6 @@ const updateOrderStatus = async (req, res) => {
 
     await order.save();
 
-    // Send notification to customer about order status update
     try {
       const customer = await User.findById(order.user);
       if (customer) {
@@ -424,7 +439,8 @@ const cancelOrder = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    res.status(500).json({ message: error.message });
+    console.error('Order cancellation error:', error);
+    res.status(500).json({ message: 'Order could not be cancelled' });
   }
 };
 
