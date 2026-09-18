@@ -34,6 +34,13 @@ const errorHandler = (err, req, res, next) => {
     message = 'Token expired';
   }
 
+  // Never leak internal error details (stack traces, DB/driver messages) in
+  // non-development environments. Expected 4xx business errors keep their
+  // client-safe messages.
+  if (statusCode >= 500 && process.env.NODE_ENV !== 'development') {
+    message = 'Internal server error';
+  }
+
   res.status(statusCode).json({
     success: false,
     message,

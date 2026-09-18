@@ -54,7 +54,6 @@ const registerUser = async (req, res) => {
 
     generateToken(res, user._id);
 
-    // Send notification to admins about new user registration
     try {
       const adminUsers = await User.find({ role: 'admin' });
       for (const admin of adminUsers) {
@@ -191,7 +190,6 @@ const changePassword = async (req, res) => {
     user.password = newPassword;
     await user.save();
 
-    // Send notification
     try {
       await Notification.create({
         userId: user._id,

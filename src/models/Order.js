@@ -135,4 +135,14 @@ orderSchema.index({ status: 1, createdAt: -1 });
 // Index for date range queries
 orderSchema.index({ createdAt: -1 });
 
+// One Razorpay payment can settle exactly ONE order. This unique index is the
+// storage-level guarantee that a concurrent duplicate verification cannot
+// create a second order; the controller converts the duplicate-key error into
+// an idempotent replay of the winner's order. partialFilterExpression keeps COD
+// orders (razorpayPaymentId null / absent) out of the constraint.
+orderSchema.index(
+  { 'payment.razorpayPaymentId': 1 },
+  { unique: true, partialFilterExpression: { 'payment.razorpayPaymentId': { $type: 'string' } } }
+);
+
 module.exports = mongoose.model('Order', orderSchema);

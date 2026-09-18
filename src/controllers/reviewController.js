@@ -1,14 +1,10 @@
 const Review = require('../models/Review');
 const Order = require('../models/Order');
 
-// @desc    Add a review for a product
-// @route   POST /api/reviews
-// @access  Private
 exports.addReview = async (req, res) => {
   try {
     const { productId, rating, title, comment } = req.body;
 
-    // Check if user has purchased this product
     const order = await Order.findOne({
       user: req.user._id,
       'items.product': productId,
@@ -22,7 +18,6 @@ exports.addReview = async (req, res) => {
       });
     }
 
-    // Check if already reviewed
     const existingReview = await Review.findOne({
       product: productId,
       user: req.user._id,
@@ -52,9 +47,6 @@ exports.addReview = async (req, res) => {
   }
 };
 
-// @desc    Get reviews for a product
-// @route   GET /api/reviews/:productId
-// @access  Public
 exports.getProductReviews = async (req, res) => {
   try {
     const reviews = await Review.find({ product: req.params.productId })
@@ -82,9 +74,6 @@ exports.getProductReviews = async (req, res) => {
   }
 };
 
-// @desc    Check if user can review a product
-// @route   GET /api/reviews/can-review/:productId
-// @access  Private
 exports.canReview = async (req, res) => {
   try {
     const order = await Order.findOne({

@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 
 const seedDemo = async () => {
   try {
-    // Connect to MongoDB
+    
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
 

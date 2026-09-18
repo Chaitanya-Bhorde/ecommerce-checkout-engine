@@ -8,11 +8,24 @@ const handleRazorpayWebhook = async (req, res) => {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
 
+    if (!webhookSecret) {
+      console.error('RAZORPAY_WEBHOOK_SECRET is not configured — rejecting webhook');
+      return res.status(500).json({ message: 'Webhook not configured' });
+    }
+
     if (!signature) {
       return res.status(400).json({ message: 'Missing webhook signature' });
     }
 
-    const rawBody = req.body.toString();
+    // The webhook route is mounted with express.raw(), so req.body is a Buffer.
+    // Guard against misconfiguration: if a JSON parser ever ran first, fall back
+    // to the stashed rawBody and reject when neither is available.
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body.toString('utf8')
+      : (req.rawBody ? req.rawBody.toString('utf8') : null);
+    if (!rawBody) {
+      return res.status(400).json({ message: 'Webhook body must be raw JSON' });
+    }
     const isValid = verifyWebhookSignature(rawBody, signature, webhookSecret);
 
     if (!isValid) {
@@ -41,7 +54,7 @@ const handleRazorpayWebhook = async (req, res) => {
 
             // RULE 3: ACID Transaction — Order + Ledger both succeed or both fail
             // Prevents unreconciled financial state (Bug #2 fix)
-          await session.withTransaction(async () => {
+            await session.withTransaction(async () => {
               // ATOMIC idempotency: findOneAndUpdate with status check
               // If already confirmed, returns null — no duplicate processing
               const order = await Order.findOneAndUpdate(
@@ -67,16 +80,28 @@ const handleRazorpayWebhook = async (req, res) => {
               );
 
               if (!order) {
-                return; // Already processed — idempotent
+                console.warn(
+                  `payment.captured for unknown or already-confirmed order (razorpayOrderId: ${razorpayOrderId}) — skipping`
+                );
+                return; // Already processed or unknown — idempotent
               }
 
+              // Reconcile the ledger inside the same transaction. Upsert keeps
+              // this webhook self-sufficient even if /payments/verify never ran.
               await Ledger.findOneAndUpdate(
-                { razorpayOrderId },
+                { razorpayOrderId, type: 'payment' },
                 {
+                  order: order._id,
+                  user: order.user,
+                  type: 'payment',
+                  amount: order.total,
+                  currency: 'INR',
+                  paymentMethod: 'razorpay',
                   razorpayPaymentId,
                   status: 'completed',
+                  description: 'Payment captured via Razorpay webhook',
                 },
-                { session }
+                { session, upsert: true, new: true, setDefaultsOnInsert: true }
               );
             });
 
@@ -87,13 +112,21 @@ const handleRazorpayWebhook = async (req, res) => {
             const failedPayment = eventPayload.payment.entity;
             const failedOrderId = failedPayment.order_id;
 
-            await Ledger.findOneAndUpdate(
-              { razorpayOrderId: failedOrderId },
+            // Only mark an EXISTING ledger entry as failed — never create a
+            // ghost record for a payment we have no ledger entry for.
+            const failedLedger = await Ledger.findOneAndUpdate(
+              { razorpayOrderId: failedOrderId, type: 'payment' },
               {
                 status: 'failed',
                 description: `Payment failed: ${failedPayment.error_description || 'Unknown error'}`,
               }
             );
+
+            if (!failedLedger) {
+              console.warn(
+                `payment.failed received for razorpayOrderId ${failedOrderId} with no ledger entry — nothing to reconcile`
+              );
+            }
 
             break;
           }

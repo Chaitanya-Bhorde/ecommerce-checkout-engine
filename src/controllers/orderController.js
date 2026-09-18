@@ -72,7 +72,7 @@ const createOrder = async (req, res) => {
   // POST /api/orders) — the single source of truth. No duplicate pre-check here.
 
   const session = await mongoose.startSession();
-  session.startTransaction();
+  session.startTransaction({ maxTransactionLockRequestTimeoutMillis: 5000 });
 
   try {
     const { shippingAddress, paymentMethod, paymentId, orderId } = req.body;
@@ -392,7 +392,7 @@ const updateOrderStatus = async (req, res) => {
 
 const cancelOrder = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  session.startTransaction({ maxTransactionLockRequestTimeoutMillis: 5000 });
 
   try {
     const order = await Order.findOne({

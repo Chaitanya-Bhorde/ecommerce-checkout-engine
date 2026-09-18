@@ -4,9 +4,7 @@ const { protect } = require('../middleware/authMiddleware');
 const Order = require('../models/Order');
 const { generateInvoicePDF } = require('../services/invoiceService');
 
-// @route   GET /api/invoice/:orderId
-// @desc    Download invoice as PDF
-// @access  Private
+
 router.get('/:orderId', protect, async (req, res) => {
   try {
     const order = await Order.findOne({

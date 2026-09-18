@@ -21,10 +21,17 @@ const getRazorpay = () => {
 };
 
 const createRazorpayOrder = async (amount, currency = 'INR', receipt = '') => {
+  
+  const maxLength = 40;
+  let receiptStr = receipt || `receipt_${Date.now()}`;
+  if (receiptStr.length > maxLength) {
+    receiptStr = receiptStr.slice(0, maxLength);
+  }
+
   const options = {
     amount: Math.round(amount * 100),
     currency,
-    receipt: receipt || `receipt_${Date.now()}`,
+    receipt: receiptStr,
     payment_capture: 1,
   };
 
@@ -51,4 +58,12 @@ const verifyWebhookSignature = (body, signature, secret) => {
   return expectedSignature === signature;
 };
 
-module.exports = { getRazorpay, createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature };
+// Fetch the authoritative payment record from Razorpay. Used by the verification
+// controller to reconcile the amount actually paid against the amount the
+// backend expected — financial values are never trusted from the frontend.
+const fetchRazorpayPayment = async (paymentId) => {
+  const payment = await getRazorpay().payments.fetch(paymentId);
+  return payment;
+};
+
+module.exports = { getRazorpay, createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature, fetchRazorpayPayment };

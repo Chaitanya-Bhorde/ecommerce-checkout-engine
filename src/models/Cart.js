@@ -28,6 +28,16 @@ const cartSchema = new mongoose.Schema(
       unique: true,
     },
     items: [cartItemSchema],
+    // Outstanding Razorpay payment intent for this cart (cart-path checkout).
+    // Records the server-computed amount presented to Razorpay so the
+    // verification step can reconcile it — the cart cannot silently change
+    // between "pay" and "verify" without failing safely.
+    pendingPayment: {
+      razorpayOrderId: { type: String, default: null },
+      amount: { type: Number, default: null },
+      initiatedAt: { type: Date, default: null },
+      settled: { type: Boolean, default: false },
+    },
   },
   {
     timestamps: true,

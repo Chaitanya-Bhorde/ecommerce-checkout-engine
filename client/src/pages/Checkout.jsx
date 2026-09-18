@@ -57,11 +57,6 @@ const CITIES_BY_STATE = {
   'Jammu and Kashmir': ['Srinagar', 'Jammu', 'Anantnag', 'Baramulla', 'Kathua', 'Sopore', 'Udhampur', 'Pulwama']
 };
 
-const PAYMENT_METHODS = [
-  { id: 'razorpay', label: 'UPI / PhonePe / GPay / Paytm', icon: '�', description: 'Pay instantly with UPI' },
-  { id: 'cod', label: 'Cash on Delivery', icon: '💵', description: 'Pay when you receive' },
-];
-
 export default function Checkout({ onCartUpdate }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -74,15 +69,14 @@ export default function Checkout({ onCartUpdate }) {
     city: '',
     state: '',
     pincode: '',
-    country: 'India', // Default country
+    country: 'India',
   });
-  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [selectedPayment, setSelectedPayment] = useState('razorpay');
+  const [paymentMode, setPaymentMode] = useState('online');
   const [cart, setCart] = useState(null);
   const [fetchingCart, setFetchingCart] = useState(true);
   const [orderId, setOrderId] = useState(null);
   const [addressCompleted, setAddressCompleted] = useState(false);
-  const [upiId, setUpiId] = useState('');
-  const [upiError, setUpiError] = useState('');
 
   useEffect(() => {
     const fetchCart = async () => {
@@ -102,7 +96,6 @@ export default function Checkout({ onCartUpdate }) {
     const { name, value } = e.target;
     setFormData(prev => {
       const updated = { ...prev, [name]: value };
-      // If state changes, reset city
       if (name === 'state') {
         updated.city = '';
       }
@@ -110,28 +103,11 @@ export default function Checkout({ onCartUpdate }) {
     });
   };
 
-  // Check if all address fields are filled
   useEffect(() => {
     const isComplete = formData.fullName && formData.phone && formData.address && 
                       formData.city && formData.state && formData.pincode;
     setAddressCompleted(isComplete);
   }, [formData]);
-
-  // Validate UPI ID format
-  const validateUpiId = (upi) => {
-    setUpiError('');
-    if (!upi || upi.trim() === '') {
-      setUpiError('Please enter your UPI ID');
-      return false;
-    }
-    // UPI ID format: username@provider (e.g., aman@paytm, 9876543210@ybl, name@gpay)
-    const upiRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+$/;
-    if (!upiRegex.test(upi)) {
-      setUpiError('Invalid UPI ID format. Use format: yourname@paytm or 9876543210@ybl');
-      return false;
-    }
-    return true;
-  };
 
   const handleProceedToPayment = (e) => {
     e.preventDefault();
@@ -143,141 +119,115 @@ export default function Checkout({ onCartUpdate }) {
     document.getElementById('payment-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const handleRazorpayPayment = async (shippingAddress) => {
+    try {
+      // Step 1: Create Razorpay order from cart (NO DB order yet)
+      console.log('🔵 Creating Razorpay order from cart...');
+      const payRes = await api.post('/payments/create', { shippingAddress });
+      const { razorpayOrderId, amount, currency, keyId } = payRes.data;
+      console.log('✅ Razorpay order created:', { razorpayOrderId, amount, currency });
+
+      // Step 2: Open Razorpay checkout modal
+      const options = {
+        key: keyId,
+        amount: amount,
+        currency: currency,
+        name: 'ShopEase',
+        description: `Order #${razorpayOrderId.slice(-8)}`,
+        order_id: razorpayOrderId,
+        handler: async function (response) {
+          console.log('✅ Razorpay payment success:', response);
+          try {
+            setError('');
+            // Step 3: Verify payment + CREATE ORDER in DB (only if payment verified)
+            const verifyRes = await api.post('/payments/verify', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              shippingAddress,  // send shipping details so backend can create order
+            });
+            console.log('✅ Payment verified & order created:', verifyRes.data);
+            const newOrderId = verifyRes.data.order?._id || verifyRes.data.orderId;
+            if (newOrderId) {
+              setOrderId(newOrderId);
+              if (onCartUpdate) {
+                onCartUpdate({ items: [], totalAmount: 0, totalItems: 0 });
+              }
+              handleOrderSuccess(newOrderId);
+            }
+          } catch (verifyErr) {
+            console.error('❌ Payment verification failed:', verifyErr);
+            setError(verifyErr.response?.data?.message || 'Payment verification failed. Please contact support.');
+            setLoading(false);
+          }
+        },
+        modal: {
+          ondismiss: function() {
+            console.log('❌ Razorpay modal closed — no order created');
+            setError('Payment cancelled. No order was placed. You can try again.');
+            setLoading(false);
+          },
+        },
+        prefill: {
+          name: formData.fullName,
+          email: '',
+          contact: formData.phone,
+        },
+        theme: {
+          color: '#3399cc',
+        },
+      };
+
+      // Show only Netbanking, hide Cards and Wallet
+      options.method = { netbanking: true, card: false, wallet: false };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error('❌ Failed to create Razorpay order:', err);
+      console.error('❌ Error response:', err.response?.data);
+      setError(err.response?.data?.message || 'Failed to initiate payment. Please try again.');
+      setLoading(false);
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (!selectedPayment) {
       setError('Please select a payment method');
       return;
     }
 
-    // Double-check address is complete
     if (!addressCompleted) {
       setError('Please complete all address fields before placing order');
       return;
-    }
-
-    // Validate UPI ID if Razorpay is selected
-    if (selectedPayment === 'razorpay') {
-      if (!validateUpiId(upiId)) {
-        return;
-      }
     }
 
     setError('');
     setLoading(true);
 
     try {
-      if (selectedPayment === 'razorpay') {
-        // UPI Payment Flow: Open Razorpay first, verify payment, then create order
-        console.log('🔵 Initiating UPI payment...');
-        
-        // Create payment order
-        const paymentRes = await api.post('/payments/create');
-        const paymentData = paymentRes.data;
+      const formattedPhone = formData.phone.replace(/[\s+()-]/g, '');
+      const shippingAddress = {
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zipCode: formData.pincode,
+        country: formData.country,
+        phone: formattedPhone,
+      };
 
-        const options = {
-          key: paymentData.keyId,
-          amount: paymentData.amount,
-          currency: paymentData.currency,
-          name: 'ShopEase',
-          description: 'UPI Payment',
-          order_id: paymentData.razorpayOrderId,
-          method: 'upi',
-          upi: { vpa: upiId },
-          handler: async function (response) {
-            try {
-              // Verify payment first
-              const verifyRes = await api.post('/payments/verify', {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              });
-              
-              console.log('✅ Payment verified:', verifyRes.data);
-              
-              // Now create the order after successful payment
-              const idempotencyKey = generateUUID();
-              
-              // Format phone number to remove spaces and special characters for validation
-              const formattedPhone = formData.phone.replace(/[\s+()-]/g, '');
-              
-              const shippingAddress = {
-                address: formData.address,
-                city: formData.city,
-                state: formData.state,
-                zipCode: formData.pincode,
-                country: formData.country,
-                phone: formattedPhone,
-              };
-              
-              console.log('📦 Creating order with shippingAddress:', shippingAddress);
-              
-              const orderRes = await api.post('/orders', { 
-                shippingAddress,
-                paymentMethod: selectedPayment,
-                paymentId: response.razorpay_payment_id,
-                orderId: response.razorpay_order_id
-              }, {
-                headers: {
-                  'Idempotency-Key': idempotencyKey
-                }
-              });
-              
-              const order = orderRes.data;
-              console.log('✅ Order created after payment:', order);
-              
-              if (order._id) {
-                setOrderId(order._id);
-                handleOrderSuccess(order._id);
-              } else {
-                setError('Payment successful but order creation failed. Please contact support.');
-                setLoading(false);
-              }
-            } catch (err) {
-              console.error('❌ Payment verification failed:', err);
-              setError('Payment verification failed. Please contact support.');
-              setLoading(false);
-            }
-          },
-          prefill: {
-            name: formData.fullName,
-            contact: formData.phone,
-          },
-          theme: {
-            color: '#4f46e5',
-          },
-        };
-
-        const razorpay = new window.Razorpay(options);
-        razorpay.open();
-      } else {
-        // COD: Create order directly without payment
+      if (selectedPayment === 'cod') {
+        // COD: Create order directly
         const idempotencyKey = generateUUID();
-        
-        // Format phone number to remove spaces and special characters for validation
-        const formattedPhone = formData.phone.replace(/[\s+()-]/g, '');
-        
-        const shippingAddress = {
-          address: formData.address,
-          city: formData.city,
-          state: formData.state,
-          zipCode: formData.pincode,
-          country: formData.country,
-          phone: formattedPhone,
-        };
-        
-        console.log('📦 Creating COD order with shippingAddress:', shippingAddress);
-        
+        console.log('🔵 Creating COD order with payload:', { shippingAddress, paymentMethod: 'cod' });
         const orderRes = await api.post('/orders', { 
           shippingAddress,
-          paymentMethod: selectedPayment 
+          paymentMethod: 'cod',
         }, {
-          headers: {
-            'Idempotency-Key': idempotencyKey
-          }
+          headers: { 'Idempotency-Key': idempotencyKey }
         });
-        
+
         const order = orderRes.data;
-        
         if (order._id) {
           setOrderId(order._id);
           handleOrderSuccess(order._id);
@@ -285,6 +235,10 @@ export default function Checkout({ onCartUpdate }) {
           setError('Order creation failed. Please try again.');
           setLoading(false);
         }
+      } else if (selectedPayment === 'razorpay') {
+        // Netbanking via Razorpay
+        console.log('🔵 Opening Razorpay Netbanking modal directly from cart (no DB order yet)');
+        await handleRazorpayPayment(shippingAddress);
       }
 
       if (onCartUpdate) {
@@ -293,7 +247,6 @@ export default function Checkout({ onCartUpdate }) {
     } catch (err) {
       console.error('❌ Order processing failed:', err);
       console.error('❌ Error response:', err.response?.data);
-      console.error('❌ Error message:', err.message);
       setError(err.response?.data?.message || 'Failed to process order. Please try again.');
       setLoading(false);
     }
@@ -463,10 +416,7 @@ export default function Checkout({ onCartUpdate }) {
                   </div>
                 </div>
 
-                <button 
-                  type="submit" 
-                  className="btn-submit"
-                >
+                <button type="submit" className="btn-submit">
                   Proceed to Payment
                 </button>
               </form>
@@ -475,75 +425,70 @@ export default function Checkout({ onCartUpdate }) {
             {addressCompleted && (
               <div id="payment-section" className="section-card payment-section">
                 <h2 className="section-title">
-                  <span className="title-icon">💳</span>
-                  Select Payment Method
+                  <span className="title-icon">🏦</span>
+                  Netbanking Payment
                 </h2>
-                <div className="payment-methods">
-                  {PAYMENT_METHODS.map(method => (
-                    <div
-                      key={method.id}
-                      className={`payment-method-card ${selectedPayment === method.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedPayment(method.id)}
-                    >
-                      <div className="payment-radio">
-                        <div className="radio-circle">
-                          {selectedPayment === method.id && <div className="radio-dot"></div>}
-                        </div>
+
+                <p style={{ fontSize: '0.95rem', color: '#4b5563', marginBottom: '1rem', textAlign: 'center' }}>
+                  Pay securely using your bank account via Razorpay
+                </p>
+
+                {/* Netbanking Option */}
+                <div className="payment-section-group" style={{ marginBottom: '0.75rem' }}>
+                  <div
+                    className={`payment-method-card ${selectedPayment === 'razorpay' ? 'selected' : ''}`}
+                    onClick={() => { setSelectedPayment('razorpay'); setPaymentMode('online'); setError(''); }}
+                    style={{ border: selectedPayment === 'razorpay' ? '2px solid #6366f1' : '2px solid #e5e7eb', background: selectedPayment === 'razorpay' ? '#eef2ff' : '#fff', padding: '1.2rem', cursor: 'pointer', borderRadius: '12px', transition: 'all 0.2s' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ fontSize: '2rem' }}>🏦</div>
+                      <div style={{ flex: 1 }}>
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#1f2937' }}>Netbanking</h3>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#6b7280' }}>Pay securely using your bank account</p>
                       </div>
-                      <div className="payment-icon">{method.icon}</div>
-                      <div className="payment-info">
-                        <h3>{method.label}</h3>
-                        <p>{method.description}</p>
-                      </div>
+                      <div style={{ fontSize: '1.5rem', color: selectedPayment === 'razorpay' ? '#6366f1' : '#d1d5db' }}>›</div>
                     </div>
-                  ))}
+                  </div>
+                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#6b7280', textAlign: 'center' }}>
+                    💡 Secure payment via Razorpay - All major banks supported
+                  </p>
                 </div>
 
-                {selectedPayment === 'razorpay' && (
-                  <div style={{ marginTop: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '8px' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', color: '#374151' }}>
-                      Enter Your UPI ID:
-                    </label>
-                    <input
-                      type="text"
-                      value={upiId}
-                      onChange={(e) => {
-                        setUpiId(e.target.value);
-                        setUpiError('');
-                      }}
-                      placeholder="e.g., aman@paytm, 9876543210@ybl, name@gpay"
-                      style={{
-                        width: '100%',
-                        padding: '0.75rem',
-                        border: upiError ? '1px solid #dc2626' : '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        fontSize: '1rem',
-                        outline: 'none'
-                      }}
-                    />
-                    {upiError && (
-                      <p style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: '0.5rem', marginBottom: 0 }}>
-                        ⚠️ {upiError}
-                      </p>
-                    )}
-                    <p style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: 0 }}>
-                      💡 Enter any UPI ID (e.g., aman@paytm, 9876543210@ybl)
-                    </p>
+                {/* COD Option */}
+                <div className="payment-section-group" style={{ marginBottom: '0.25rem' }}>
+                  <div
+                    className={`payment-method-card ${selectedPayment === 'cod' ? 'selected' : ''}`}
+                    onClick={() => { setSelectedPayment('cod'); setPaymentMode('cod'); setError(''); }}
+                    style={{ border: selectedPayment === 'cod' ? '2px solid #6366f1' : '1px solid #e5e7eb', background: selectedPayment === 'cod' ? '#f9fafb' : '#fff', padding: '0.85rem 1rem', cursor: 'pointer', borderRadius: '10px', transition: 'all 0.2s' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ fontSize: '1.3rem' }}>💵</div>
+                      <div style={{ flex: 1 }}>
+                        <h3 style={{ margin: 0, fontSize: '1rem', color: '#374151' }}>Cash on Delivery</h3>
+                        <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.8rem', color: '#9ca3af' }}>Pay when you receive your order</p>
+                      </div>
+                      <div style={{ fontSize: '1.2rem', color: selectedPayment === 'cod' ? '#6366f1' : '#d1d5db' }}>›</div>
+                    </div>
                   </div>
-                )}
+                </div>
 
                 <button 
                   onClick={handlePlaceOrder}
                   className="btn-submit btn-place-order"
-                  disabled={loading || !selectedPayment || (selectedPayment === 'razorpay' && !upiId)}
+                  disabled={loading || !selectedPayment}
+                  style={{ marginTop: '1rem', padding: '0.9rem 2rem', fontSize: '1.1rem', fontWeight: 600 }}
                 >
                   {loading ? (
                     <>
                       <span className="spinner"></span>
                       Processing...
                     </>
+                  ) : paymentMode === 'online' ? (
+                    `Pay ₹${total.toFixed(2)}`
+                  ) : paymentMode === 'cod' ? (
+                    'Place Order (COD)'
                   ) : (
-                    'Place Order'
+                    `Pay ₹${total.toFixed(2)}`
                   )}
                 </button>
               </div>

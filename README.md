@@ -5,7 +5,8 @@ A full-stack e-commerce application with complete checkout flow, payment integra
 ## 🚀 Features
 
 ### Customer Features
-- **User Authentication** - JWT-based auth with secure cookies
+- **User Authentication** - JWT-based auth with secure httpOnly cookies
+- **Password Reset** - Forgot password / reset password with hashed, expiring tokens
 - **Product Browsing** - Search, filter, and sort products
 - **Shopping Cart** - Add/update/remove items with stock validation
 - **Checkout Flow** - Two-step process with payment method selection
@@ -13,7 +14,7 @@ A full-stack e-commerce application with complete checkout flow, payment integra
 - **Payment Integration** - Razorpay (Card/UPI) and Cash on Delivery
 
 ### Admin Features
-- **Dashboard** - Real-time statistics and metrics
+- **Dashboard** - Statistics and metrics
 - **Order Management** - Update status, view details, track history
 - **Product Management** - CRUD operations with image management
 - **Category Management** - Organize products with categories
@@ -81,6 +82,7 @@ JWT_SECRET=your_jwt_secret_key_here
 # Razorpay
 RAZORPAY_KEY_ID=your_razorpay_key_id
 RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+RAZORPAY_WEBHOOK_SECRET=your_razorpay_webhook_secret
 ```
 
 4. **Run the application**
@@ -104,12 +106,15 @@ npm run client:dev
 ## 🧪 Testing
 
 ```bash
-# Run backend tests
+# Run backend tests (in-memory MongoDB replica set, no external services needed)
 npm test
 
-# Run with coverage
-npm run test:coverage
+# Optional: run with coverage report
+npx jest --coverage
 ```
+
+The suite covers authentication (incl. password reset), cart/checkout, payment
+creation/verification/webhooks, idempotency and ledger consistency.
 
 ## 📁 Project Structure
 
@@ -227,12 +232,15 @@ db.users.updateOne(
 
 ## 🔒 Security
 
-- JWT authentication with httpOnly cookies
-- Role-based access control (RBAC)
+- JWT authentication with httpOnly, SameSite-protected cookies
+- Role-based access control (RBAC) for admin routes
 - Password hashing with bcrypt
-- Idempotency keys for duplicate prevention
-- Input validation and sanitization
-- CORS configuration
+- Password reset tokens stored hashed (SHA-256) with expiry
+- Idempotency keys for duplicate prevention (UUID + per-user + payload hash)
+- Razorpay signature verification (checkout) and webhook HMAC verification
+- Amount reconciliation against Razorpay server data (frontend values never trusted)
+- Input validation (express-validator) and NoSQL-injection-safe queries
+- Helmet security headers, CORS allowlist, compression, general API rate limiting
 
 ## 📝 API Endpoints
 
@@ -241,6 +249,9 @@ db.users.updateOne(
 - `POST /api/auth/login` - Login user
 - `POST /api/auth/logout` - Logout user
 - `GET /api/auth/me` - Get current user
+- `PUT /api/auth/change-password` - Change password (auth)
+- `POST /api/auth/forgot-password` - Request reset token
+- `POST /api/auth/reset-password` - Reset password with token
 
 ### Products
 - `GET /api/products` - List products
@@ -263,16 +274,21 @@ db.users.updateOne(
 - `DELETE /api/cart` - Clear cart
 
 ### Orders
-- `POST /api/orders` - Create order
+- `POST /api/orders` - Create order (requires `Idempotency-Key` header, a UUID)
 - `GET /api/orders` - Get user orders
 - `GET /api/orders/:id` - Get order by ID
 - `PUT /api/orders/:id/cancel` - Cancel order
 
 ### Payments
-- `POST /api/payments/create/:orderId` - Create Razorpay order
-- `POST /api/payments/verify` - Verify payment
+- `POST /api/payments/create` - Create Razorpay order from cart
+- `POST /api/payments/create/:orderId` - Create Razorpay order for an existing order
+- `POST /api/payments/verify` - Verify payment (server-side signature check)
 - `GET /api/payments/status/:orderId` - Get payment status
-- `GET /api/payments/ledger` - Get ledger entries (admin)
+- `GET /api/payments/ledger` - Get own ledger entries
+- `GET /api/payments/ledger/all` - Get all ledger entries (admin)
+
+### Webhook
+- `POST /api/webhooks/razorpay` - Razorpay webhook (HMAC-SHA256 verified, 2xx before processing)
 
 ### Admin
 - `GET /api/admin/dashboard/stats` - Dashboard statistics
@@ -293,6 +309,7 @@ MONGODB_URI=your_production_mongodb_uri
 JWT_SECRET=your_secure_jwt_secret
 RAZORPAY_KEY_ID=your_razorpay_key
 RAZORPAY_KEY_SECRET=your_razorpay_secret
+RAZORPAY_WEBHOOK_SECRET=your_razorpay_webhook_secret
 ```
 
 ### Deploy to Vercel (Frontend)

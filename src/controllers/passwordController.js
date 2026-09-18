@@ -3,12 +3,16 @@ const crypto = require('crypto');
 const Notification = require('../models/Notification');
 const { body, validationResult } = require('express-validator');
 
-// Generate reset token
 const generateResetToken = () => {
   return crypto.randomBytes(32).toString('hex');
 };
 
-// Forgot password - send reset email
+// Tokens are stored only as SHA-256 hashes — a DB leak cannot be used to reset
+// anyone's password.
+const hashResetToken = (token) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
 const forgotPassword = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -23,33 +27,35 @@ const forgotPassword = async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
 
-    // Don't reveal if user exists or not (security best practice)
+    // Generic response regardless of account existence (no enumeration oracle)
+    const genericResponse = {
+      success: true,
+      message: 'If an account with that email exists, we have sent a password reset link'
+    };
+
     if (!user) {
-      return res.json({
-        success: true,
-        message: 'If an account with that email exists, we have sent a password reset link'
-      });
+      return res.json(genericResponse);
     }
 
-    // Generate reset token
     const resetToken = generateResetToken();
-    const resetTokenExpiry = Date.now() + 3600000; // 1 hour
+    // `resetPasswordExpiry` is a Date path in the schema: always store and
+    // compare Date values. Mixing numeric epoch milliseconds with a Date-typed
+    // field made every stored token un-matchable (Mongoose casts the number to
+    // a Date, and MongoDB never compares a Date against a numeric bound).
+    const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
 
-    // Save token to user
-    user.resetPasswordToken = resetToken;
+    user.resetPasswordToken = hashResetToken(resetToken);
     user.resetPasswordExpiry = resetTokenExpiry;
     await user.save();
 
-    // Send notification (in production, send email)
     try {
       await Notification.create({
         userId: user._id,
         type: 'general',
         title: 'Password Reset Request',
-        message: `Password reset requested. Use this token: ${resetToken}. This token expires in 1 hour.`,
+        message: 'A password reset was requested for your account. The reset link expires in 1 hour.',
         data: { 
           userId: user._id, 
-          resetToken,
           expiresAt: resetTokenExpiry
         },
       });
@@ -57,18 +63,19 @@ const forgotPassword = async (req, res) => {
       console.error('Error creating password reset notification:', notifError);
     }
 
-    res.json({
-      success: true,
-      message: 'If an account with that email exists, we have sent a password reset link',
-      // In development, return the token (remove in production)
-      ...(process.env.NODE_ENV === 'development' && { resetToken })
-    });
+    // Raw token is NEVER exposed in production. In development only, it is
+    // returned explicitly for testing because there is no email transport.
+    if (process.env.NODE_ENV === 'development') {
+      return res.json({ ...genericResponse, resetToken, devOnly: true });
+    }
+
+    res.json(genericResponse);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Forgot password error:', error.message);
+    res.status(500).json({ message: 'An error occurred while processing your request' });
   }
 };
 
-// Reset password with token
 const resetPassword = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -81,11 +88,11 @@ const resetPassword = async (req, res) => {
     }
 
     const { token, password } = req.body;
+    const hashedToken = hashResetToken(token);
 
-    // Find user with valid token
     const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpiry: { $gt: Date.now() }
+      resetPasswordToken: hashedToken,
+      resetPasswordExpiry: { $gt: new Date() }
     });
 
     if (!user) {
@@ -95,13 +102,27 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Update password
-    user.password = password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpiry = undefined;
+    // Atomically invalidate the token BEFORE changing the password so the
+    // token is strictly single-use even under concurrent requests.
+    const invalidated = await User.updateOne(
+      {
+        _id: user._id,
+        resetPasswordToken: hashedToken,
+        resetPasswordExpiry: { $gt: new Date() }
+      },
+      { $unset: { resetPasswordToken: '', resetPasswordExpiry: '' } }
+    );
+
+    if (invalidated.modifiedCount === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired reset token' 
+      });
+    }
+
+    user.password = password; // hashed by the User model pre-save hook
     await user.save();
 
-    // Send notification
     try {
       await Notification.create({
         userId: user._id,
@@ -119,11 +140,11 @@ const resetPassword = async (req, res) => {
       message: 'Password reset successful'
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Reset password error:', error.message);
+    res.status(500).json({ message: 'An error occurred while processing your request' });
   }
 };
 
-// Validation rules
 const validateForgotPassword = [
   body('email')
     .isEmail()

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { api } from '../services/api';
 import './ChangePassword.css';
 
 const ChangePassword = () => {
@@ -9,14 +10,12 @@ const ChangePassword = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { API } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    // Validation
     if (newPassword !== confirmPassword) {
       setError('New passwords do not match');
       return;
@@ -35,7 +34,7 @@ const ChangePassword = () => {
     setLoading(true);
 
     try {
-      const res = await API.put('/auth/change-password', {
+      const res = await api.put('/auth/change-password', {
         currentPassword,
         newPassword
       });

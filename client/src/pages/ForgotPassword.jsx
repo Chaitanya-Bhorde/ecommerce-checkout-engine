@@ -1,41 +1,34 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api } from '../services/api';
 import './ForgotPassword.css';
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [devToken, setDevToken] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setDevToken('');
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:5000/api/auth/forgot-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
-      });
+      const res = await api.post('/auth/forgot-password', { email });
 
-      const data = await res.json();
+      setSuccess(res.data?.message || 'If an account with that email exists, we have sent a password reset link');
 
-      if (res.ok) {
-        setSuccess(data.message);
-        if (data.resetToken) {
-          setSuccess(`${data.message} (Development: ${data.resetToken})`);
-        }
-        setEmail('');
-      } else {
-        setError(data.message || 'Failed to process request');
+      // Development only: backend returns the raw token because there is no
+      // email transport in dev. Never present in production responses.
+      if (res.data?.devOnly && res.data?.resetToken) {
+        setDevToken(res.data.resetToken);
       }
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      setError(err.response?.data?.message || 'Failed to process request. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -44,11 +37,18 @@ const ForgotPassword = () => {
   return (
     <div className="forgot-password-container">
       <div className="forgot-password-card">
-        <h2>Forgot Password?</h2>
-        <p className="subtitle">Enter your email and we'll send you a reset link</p>
+        <h2>Forgot Password</h2>
+        <p className="subtitle">Enter your email to receive a password reset link</p>
 
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
+
+        {devToken && (
+          <div className="alert alert-info">
+            <p><strong>Development mode:</strong> email delivery is not configured, use this reset link:</p>
+            <Link to={`/reset-password?token=${devToken}`}>Open reset page with token</Link>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="forgot-password-form">
           <div className="form-group">
@@ -77,3 +77,4 @@ const ForgotPassword = () => {
 };
 
 export default ForgotPassword;
+

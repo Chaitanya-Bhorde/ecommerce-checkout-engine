@@ -23,23 +23,41 @@ const { httpLogger } = require('./middleware/logger');
 
 const app = express();
 
-// Increase request size limit for base64 images (default is 100kb)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// ── Raw body preservation for webhook signature verification ──────────────
+// The verify callback stashes the raw bytes before JSON parsing mutates them.
+// The webhook controller reads req.rawBody for HMAC computation.
+const rawParser = express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => { req.rawBody = buf; }
+});
 
-// HTTP request logging (should be first to log all requests)
+// ── Mount webhook route BEFORE the global JSON parser ─────────────────────
+// express.raw() on this specific path gives handleRazorpayWebhook a Buffer
+// directly. The fallback path in the controller also consults req.rawBody for
+// resilience if middleware ordering ever changes.
+app.post(
+  '/api/webhooks/razorpay',
+  express.raw({ type: 'application/json', limit: '10mb' }),
+  handleRazorpayWebhook
+);
+
+// ── Body parsers ───────────────────────────────────────────────────────────
+app.use(rawParser);
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ── Request logging (first non-body middleware so every request is logged) ─
 app.use(httpLogger);
 
-// Security headers
+// ── Security headers ───────────────────────────────────────────────────────
 app.use(helmet());
 
-// Compression
+// ── Compression ────────────────────────────────────────────────────────────
 app.use(compression());
 
-// CORS configuration
+// ── CORS ───────────────────────────────────────────────────────────────────
 const corsOptions = {
   origin: function (origin, callback) {
-  const allowedOrigins = [
+    const allowedOrigins = [
       process.env.CLIENT_URL,
       'http://localhost:5173',
       'http://localhost:5174',
@@ -48,7 +66,7 @@ const corsOptions = {
       'http://127.0.0.1:5174',
       'http://127.0.0.1:3000'
     ].filter(Boolean);
-    
+
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -59,52 +77,54 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Rate limiting - DISABLED for development to prevent "Too many requests" errors
-// To enable in production, uncomment the lines below and set NODE_ENV=production
-/*
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
+// ── Rate limiting ──────────────────────────────────────────────────────────
+// Enabled by default; disable with RATE_LIMIT_ENABLED=false (used in tests).
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX || '50', 10),
   message: {
     success: false,
-    message: 'Too many authentication attempts, please try again after 15 minutes.'
+    message: 'Too many authentication attempts, please try again after 15 minutes.',
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-if (process.env.NODE_ENV === 'production') {
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '300', 10),
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+if (process.env.RATE_LIMIT_ENABLED !== 'false') {
+  // Strict limiter for authentication / password-reset endpoints (brute-force)
+  app.use(
+    [
+      '/api/auth/login',
+      '/api/auth/register',
+      '/api/auth/forgot-password',
+      '/api/auth/reset-password',
+    ],
+    authLimiter
+  );
+  // General limiter for everything else (generous, DoS protection only)
   app.use('/api/', generalLimiter);
-  app.use('/api/auth/login', authLimiter);
-  app.use('/api/auth/register', authLimiter);
 }
-*/
 
-// Request size limits (already set to 10mb above for base64 images)
-// Keeping these for other routes that don't need large limits
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Webhook route must be before express.json() — needs raw body for signature verification
-app.post('/api/webhooks/razorpay', express.raw({ type: 'application/json' }), handleRazorpayWebhook);
-
+// ── Cookie parser (must be after body parsers, before auth routes) ─────────
 app.use(cookieParser());
 
+// ── Health check ───────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'E-Commerce Checkout Engine is running' });
 });
 
+// ── Route mounts ───────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
@@ -119,7 +139,7 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/invoice', invoiceRoutes);
 
-// Global error handler (must be last)
+// ── Global error handler (must be last) ────────────────────────────────────
 app.use(errorHandler);
 
 module.exports = app;

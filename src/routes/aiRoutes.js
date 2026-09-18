@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { chat, clearChatHistory, getChatHistory, getConversations, deleteConversation, shouldEscalateToHuman, getSuggestedReplies } = require('../services/ai/chatbot');
 const { runAgent } = require('../services/ai/agentWorkflow');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../middleware/authMiddleware');
 const Conversation = require('../models/Conversation');
 const ChatMessage = require('../models/ChatMessage');
 const SupportTicket = require('../models/SupportTicket');
@@ -327,7 +327,7 @@ router.get('/chat/suggestions/:userId', protect, async (req, res) => {
 // @route   GET /api/ai/admin/support-tickets
 // @desc    Get all support tickets (Admin only)
 // @access  Private/Admin
-router.get('/admin/support-tickets', protect, async (req, res) => {
+router.get('/admin/support-tickets', protect, admin, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
@@ -356,7 +356,7 @@ router.get('/admin/support-tickets', protect, async (req, res) => {
 // @route   PATCH /api/ai/admin/support-tickets/:id/resolve
 // @desc    Mark a support ticket as resolved (Admin only)
 // @access  Private/Admin
-router.patch('/admin/support-tickets/:id/resolve', protect, async (req, res) => {
+router.patch('/admin/support-tickets/:id/resolve', protect, admin, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
@@ -395,7 +395,7 @@ router.patch('/admin/support-tickets/:id/resolve', protect, async (req, res) => 
 // @route   POST /api/ai/admin/init-vector-store
 // @desc    Initialize vector store with knowledge base (Admin only)
 // @access  Private/Admin
-router.post('/admin/init-vector-store', protect, async (req, res) => {
+router.post('/admin/init-vector-store', protect, admin, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
@@ -445,7 +445,7 @@ router.post('/admin/init-vector-store', protect, async (req, res) => {
 // @route   GET /api/ai/admin/vector-store/stats
 // @desc    Get vector store statistics (Admin only)
 // @access  Private/Admin
-router.get('/admin/vector-store/stats', protect, async (req, res) => {
+router.get('/admin/vector-store/stats', protect, admin, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
@@ -628,7 +628,7 @@ router.post('/upload-receipt', protect, upload.single('receipt'), async (req, re
 // @route   POST /api/ai/admin/knowledge-base/seed
 // @desc    Re-seed knowledge base (Admin only)
 // @access  Private/Admin
-router.post('/admin/knowledge-base/seed', protect, async (req, res) => {
+router.post('/admin/knowledge-base/seed', protect, admin, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
