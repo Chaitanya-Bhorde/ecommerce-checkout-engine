@@ -194,12 +194,12 @@ SESSION_SECRET=your_session_secret_here
 
 5. **Get Connection String**
    ```
-   mongodb+srv://admin:password@cluster0.mongodb.net/ecommerce?retryWrites=true&w=majority
+   mongodb+srv://<username>:<password>@cluster0.xxxxxx.mongodb.net/ecommerce?retryWrites=true&w=majority
    ```
 
 6. **Add to Environment Variables**
    ```
-   MONGODB_URI=mongodb+srv://admin:password@cluster0.mongodb.net/ecommerce?retryWrites=true&w=majority
+   MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxxx.mongodb.net/ecommerce?retryWrites=true&w=majority
    ```
 
 ---
