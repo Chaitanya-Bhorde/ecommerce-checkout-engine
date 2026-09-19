@@ -14,6 +14,12 @@ const startDb = async () => {
   const uri = replSet.getUri('checkout_test');
   if (mongoose.connection.readyState === 0) {
     await mongoose.connect(uri);
+    // Await every model's index build before any test runs. Mongoose otherwise
+    // builds indexes lazily/in the background, and an index build holds a
+    // collection lock; the first transaction of a suite then trips the server's
+    // 5ms transaction lock-request timeout ("Unable to acquire IX lock ... within
+    // 5ms", code 24 LockTimeout) and surfaces as a spurious 500.
+    await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
   }
   return uri;
 };

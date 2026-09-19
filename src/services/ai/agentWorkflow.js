@@ -3,28 +3,12 @@
 // The AI can now THINK and ACT, not just chat!
 
 const { StateGraph, END } = require('@langchain/langgraph');
-const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
-const { getLLM } = require('./llmConfig'); // FIXED: use shared config (respects AI_PROVIDER=groq) instead of hardcoded Ollama
+const { HumanMessage, AIMessage } = require('@langchain/core/messages');
 const { cancelOrder, processReturn, updateDeliveryAddress, getOrderDetails, searchProducts, applyDiscountCode, getUserRecentOrders } = require('./agentTools');
 
-// FIXED: This now uses whatever AI_PROVIDER is set to in .env (groq/openai/ollama)
-// instead of always hardcoding Ollama regardless of config.
-const llm = getLLM('support');
-
-// FIXED: LangChain message objects (SystemMessage/HumanMessage/AIMessage) can't be sent
-// directly to the Groq/OpenAI fetch() calls in llmConfig.js - those expect plain
-// { role, content } objects. This helper converts them before calling llm.invoke().
-function toPlainMessages(messages) {
-  return messages.map((m) => {
-    let role = 'user';
-    const type = typeof m._getType === 'function' ? m._getType() : null;
-    if (type === 'system') role = 'system';
-    else if (type === 'ai') role = 'assistant';
-    else if (type === 'human') role = 'user';
-    else if (m.role) role = m.role; // already a plain object
-    return { role, content: m.content };
-  });
-}
+// NOTE: no LLM handle is created here. This workflow only classifies intent and
+// runs action tools; the single user-facing answer is produced by chatbot.js
+// chat(). Creating an LLM here used to cost one wasted model call per message.
 
 // FIXED: Confirmation state must survive across separate HTTP requests
 // (e.g. "cancel order #123" -> AI asks to confirm -> user replies "yes" in a NEW request).
@@ -50,8 +34,29 @@ class AgentState {
 /**
  * Analyze user intent - What does the user want?
  */
+/**
+ * Find the most recent message that came from the USER.
+ *
+ * FIX: this used to read the last entry of `state.messages`, which after the
+ * entry node ran was the ASSISTANT's own reply. Intent was therefore inferred
+ * from the bot's own wording - a greeting reply containing the words "order
+ * tracking" made the bot answer "Are you sure you want to return order
+ * #TRACKING?". Reading the user's message is what this function documents, and
+ * it makes routing deterministic instead of dependent on the model's phrasing.
+ */
+function getLastUserMessage(state) {
+  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
+    const m = state.messages[i];
+    const type = typeof m._getType === 'function' ? m._getType() : null;
+    if (type === 'human' || m.role === 'user') {
+      return String(m.content || '');
+    }
+  }
+  return '';
+}
+
 async function analyzeIntent(state) {
-  const lastMessage = state.messages[state.messages.length - 1].content.toLowerCase();
+  const lastMessage = getLastUserMessage(state).toLowerCase();
 
   const intents = {
     cancelOrder: ['cancel', 'cancellation', 'cancel my order'],
@@ -104,40 +109,17 @@ function extractDiscountCode(message) {
  * Node: Handle general chat (no action needed)
  */
 async function handleGeneralChat(state) {
-  const systemPrompt = `You are a helpful customer support assistant for an e-commerce store.
-
-  You can help with:
-  - Order tracking and status (e.g., "Where is my order?", "Track order #ABC12345")
-  - Product recommendations
-  - Return and refund policies
-  - Shipping information
-  - Order details (items, prices, delivery address, payment method)
-  - Delivery progress and estimated delivery time
-  - General inquiries
-
-  When a user uploads a receipt or provides an order ID, you can answer specific questions about that order:
-  - Current status and delivery progress
-  - Items in the order with prices
-  - Shipping address
-  - Payment method used
-  - Order date and total amount
-  - When the order will be delivered
-
-  Be polite, professional, and helpful.
-  Keep responses concise (under 100 words).
-  
-  If the user wants to perform an action (cancel order, return, etc.), guide them to provide the order ID.`;
-
-  const messages = [
-    new SystemMessage(systemPrompt),
-    ...state.messages.slice(-10),
-  ];
-
-  // FIXED: convert to plain {role, content} before calling the shared llm (Groq/OpenAI/Ollama)
-  const response = await llm.invoke(toPlainMessages(messages));
-
+  // PERF: this node used to generate its own LLM answer, but the /chat route
+  // DISCARDS that answer for general queries (runAgent reports
+  // handledByAgent === false and the route then answers via chatbot.js chat()).
+  // Every ordinary message therefore paid for TWO sequential LLM round-trips
+  // while only the second one was ever shown to the user.
+  //
+  // The node is now a pass-through: the router below reads the USER's message
+  // and either dispatches to a real action node or returns generalChat, in
+  // which case chat() produces the single, richer, DB-personalized answer.
   return {
-    messages: [...state.messages, new AIMessage(response.content)],
+    messages: state.messages,
     currentAction: null,
     actionResult: null,
   };

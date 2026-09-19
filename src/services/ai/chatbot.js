@@ -61,11 +61,6 @@ async function getProductRecommendations(query = '') {
     
     console.log(`[getProductRecommendations] Found ${products.length} total products`);
     
-    // Also get distinct categories
-    const Category = require('../../models/Category');
-    const categories = await Category.find({ isActive: true }).select('name');
-    const categoryNames = categories.map(c => c.name);
-    console.log(`[getProductRecommendations] Categories:`, categoryNames);
     
     const mappedProducts = products.map(product => ({
       id: product._id, 
@@ -116,15 +111,16 @@ async function getProductRecommendations(query = '') {
 
 async function getDatabaseStats() {
   try {
-    const [totalOrders, totalProducts, totalUsers] = await Promise.all([
+    // PERF: the status aggregation is independent of these three counts, so it is
+    // issued in the same round-trip instead of a second sequential one.
+    const [totalOrders, totalProducts, totalUsers, statusCounts] = await Promise.all([
       Order.countDocuments(),
       Product.countDocuments({ isActive: true }),
       User.countDocuments(),
-    ]);
-    
-    // Count orders by each status
-    const statusCounts = await Order.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } }
+      // Count orders by each status
+      Order.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
     ]);
     
     const statusMap = {};
@@ -266,14 +262,21 @@ async function chat(userId, message, context = {}, conversationId = null) {
     }
 
     // Fetch conversation history from database
-    const historyMessages = await ChatMessage.find({ conversationId: currentConversationId })
-      .sort({ timestamp: 1 })
-      .limit(20);
-    
-    const history = historyMessages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    // PERF: history, RAG retrieval, product/order/stat queries are mutually
+    // independent, so they now share ONE round-trip instead of running back to
+    // back. The RAG lookup in particular does an embedding API call, so leaving
+    // it sequenced after the database work added its full latency on top.
+    const ragPromise = (async () => {
+      try {
+        console.log(`[RAG] Searching vector store...`);
+        const docs = await vectorStore.search(message, 3);
+        console.log(`[RAG] Retrieved ${docs.length} relevant documents`);
+        return docs;
+      } catch (ragError) {
+        console.log(`[RAG] Vector store unavailable, using database data only. Error: ${ragError.message}`);
+        return [];
+      }
+    })();
 
     console.log(`[Chatbot] Fetching FRESH database stats for ${userName}...`);
     
@@ -282,8 +285,14 @@ async function chat(userId, message, context = {}, conversationId = null) {
     let popularProducts = [];
     let categoryAnalytics = [];
     
-    if (userRole === 'admin') {
-      const [popular, categories, allOrders, allUsers] = await Promise.all([
+    const [historyMessages, relevantDocs, recommendations, stats, adminData, ordersData] = await Promise.all([
+      ChatMessage.find({ conversationId: currentConversationId })
+        .sort({ timestamp: 1 })
+        .limit(20),
+      ragPromise,
+      getProductRecommendations(message),
+      getDatabaseStats(),
+      userRole === 'admin' ? Promise.all([
         getPopularProducts(10),
         getCategoryAnalytics(),
         // Get all orders with user info for admin to see
@@ -293,10 +302,20 @@ async function chat(userId, message, context = {}, conversationId = null) {
           .limit(20)
           .select('_id total status createdAt items user'),
         // Get all customers who placed orders
-        Order.distinct('user').then(userIds => 
+        Order.distinct('user').then(userIds =>
           User.find({ _id: { $in: userIds.filter(id => id) } }).select('name email')
         ),
-      ]);
+      ]) : null,
+      userRole !== 'admin' ? getUserOrders(normalizedUserId, orderLimit) : null,
+    ]);
+
+    const history = historyMessages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    if (userRole === 'admin') {
+      const [popular, categories, allOrders, allUsers] = adminData;
       popularProducts = popular;
       categoryAnalytics = categories;
       userOrders = allOrders.map(order => ({
@@ -308,29 +327,16 @@ async function chat(userId, message, context = {}, conversationId = null) {
         customerName: order.user?.name || 'Guest',
         customerEmail: order.user?.email || 'N/A',
       }));
-      
+
       console.log(`[Chatbot] Admin analytics - Popular products: ${popularProducts.length}, Categories: ${categoryAnalytics.length}`);
       console.log(`[Chatbot] Admin orders - ${userOrders.length} total, Customers who ordered: ${allUsers.length}`);
     } else {
-      userOrders = await getUserOrders(normalizedUserId, orderLimit);
+      userOrders = ordersData;
     }
-    
-    const [recommendations, stats] = await Promise.all([
-      getProductRecommendations(message),
-      getDatabaseStats(),
-    ]);
 
     console.log(`[Chatbot] Stats (FRESH) - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
 
-    // RAG: Try vector store - don't fail if unavailable
-    let relevantDocs = [];
-    try {
-      console.log(`[RAG] Searching vector store...`);
-      relevantDocs = await vectorStore.search(message, 3);
-      console.log(`[RAG] Retrieved ${relevantDocs.length} relevant documents`);
-    } catch (ragError) {
-      console.log(`[RAG] Vector store unavailable, using database data only. Error: ${ragError.message}`);
-    }
+    // relevantDocs was already retrieved in parallel above (see ragPromise).
 
     // Build personalized context with ALL products always available
     let systemPrompt = `You are a helpful customer support assistant for an e-commerce store called "ShopEase". You are talking to ${userName}.
@@ -440,42 +446,56 @@ CURRENT USER:
     console.log(`[Chatbot] Calling LLM with timeout...`);
     const response = await llm.invoke(messages);
     console.log(`[Chatbot] LLM response object type:`, typeof response, response ? Object.keys(response) : 'null');
-    const aiResponse = response.content;
+    // `let` (not `const`): the escalation path below appends the ticket
+    // acknowledgment to this string. Assigning to a const here used to throw
+    // "Assignment to constant variable", which silently swallowed the
+    // acknowledgment and reported escalate:false for escalated conversations.
+    let aiResponse = response.content;
 
     console.log(`[Chatbot] ✅ Response for ${userName}: "${aiResponse.substring(0, 80)}..."`);
-
-    // Save user message and AI response to database
-    await ChatMessage.create({
-      conversationId: currentConversationId,
-      userId: normalizedUserId,
-      role: 'user',
-      content: message,
-    });
-
-    await ChatMessage.create({
-      conversationId: currentConversationId,
-      userId: normalizedUserId,
-      role: 'assistant',
-      content: aiResponse,
-    });
-
-    // Update conversation's updatedAt timestamp
-    await Conversation.findByIdAndUpdate(currentConversationId, { updatedAt: Date.now() });
 
     // PART 3: Check if should escalate to human
     let escalate = false;
     let supportTicket = null;
-    if (shouldEscalateToHuman(message)) {
-      escalate = true;
-      supportTicket = await SupportTicket.create({
-        userId: normalizedUserId,
-        userName: userName,
-        userEmail: userEmail,
+    escalate = shouldEscalateToHuman(message);
+
+    // PERF: the message inserts, the conversation timestamp touch and the
+    // support ticket are independent writes. Issuing them together removes
+    // three sequential database round-trips from the response path.
+    // Failure semantics are unchanged - they still run only AFTER the model
+    // call has succeeded, exactly as before.
+    const [, , , ticketDoc] = await Promise.all([
+      ChatMessage.create({
         conversationId: currentConversationId,
-        reason: message,
-        status: 'open',
-      });
-      
+        userId: normalizedUserId,
+        role: 'user',
+        content: message,
+      }),
+
+      ChatMessage.create({
+        conversationId: currentConversationId,
+        userId: normalizedUserId,
+        role: 'assistant',
+        content: aiResponse,
+      }),
+
+      // Update conversation's updatedAt timestamp
+      Conversation.findByIdAndUpdate(currentConversationId, { updatedAt: Date.now() }),
+
+      escalate
+        ? SupportTicket.create({
+            userId: normalizedUserId,
+            userName: userName,
+            userEmail: userEmail,
+            conversationId: currentConversationId,
+            reason: message,
+            status: 'open',
+          })
+        : null,
+    ]);
+
+    if (escalate) {
+      supportTicket = ticketDoc;
       const ticketAcknowledgment = `\n\nI've connected you with our support team - they'll follow up shortly. Your ticket number is #${supportTicket._id.toString().slice(-8)}.`;
       aiResponse += ticketAcknowledgment;
     }
