@@ -1,0 +1,108 @@
+.legal-page {
+  min-height: calc(100vh - 80px);
+  padding: 2rem 1.25rem;
+  background: #f9fafb;
+}
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.breadcrumb a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: #d1d5db;
+}
+
+.breadcrumb-current {
+  color: #111827;
+  font-weight: 500;
+}
+
+.legal-container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 2.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+}
+
+.legal-container h1 {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 0.5rem;
+}
+
+.legal-updated {
+  font-size: 0.85rem;
+  color: #9ca3af;
+  margin-bottom: 2rem;
+}
+
+.legal-container section {
+  margin-bottom: 1.75rem;
+}
+
+.legal-container h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 0.75rem;
+}
+
+.legal-container p,
+.legal-container li {
+  color: #374151;
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.legal-container ul {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.legal-container li {
+  margin-bottom: 0.4rem;
+}
+
+@media (max-width: 768px) {
+  .legal-page {
+    padding: 1.25rem 1rem;
+  }
+
+  .legal-container {
+    padding: 1.5rem;
+  }
+
+  .legal-container h1 {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .legal-container {
+    padding: 1.15rem;
+    border-radius: 12px;
+  }
+
+  .legal-container h2 {
+    font-size: 1.05rem;
+  }
+}

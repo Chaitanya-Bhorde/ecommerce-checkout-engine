@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import ProductCard from '../components/ProductCard';
 import { useAuth } from '../contexts/AuthContext';
+import './Products.css';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -162,19 +163,6 @@ export default function Products() {
     }
   };
 
-  const filterBarStyle = {
-    display: 'flex',
-    gap: '0.75rem',
-    marginBottom: '2rem',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    padding: '1.1rem 1.25rem',
-    background: '#ffffff',
-    borderRadius: '12px',
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-  };
-
   const selectStyle = {
     padding: '0.55rem 0.75rem',
     border: '1px solid #d1d5db',
@@ -193,19 +181,13 @@ export default function Products() {
         </p>
       </div>
 
-      <div style={filterBarStyle}>
+      <div className="products-filter-bar">
         <input
           type="text"
           placeholder="Search products..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          style={{
-            padding: '0.55rem 0.85rem',
-            border: '1px solid #d1d5db',
-            borderRadius: '8px',
-            minWidth: '220px',
-            fontSize: '0.92rem',
-          }}
+          className="products-search-input"
         />
 
         <select
@@ -257,11 +239,7 @@ export default function Products() {
         <p style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>No products found.</p>
       ) : (
         <>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '1.5rem',
-          }}>
+          <div className="products-page-grid">
             {products.map((product) => (
               <ProductCard 
                 key={product._id} 
@@ -274,34 +252,21 @@ export default function Products() {
             ))}
           </div>
 
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '1rem',
-            marginTop: '2rem',
-            padding: '1rem 0',
-          }}>
-            <span style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+          <div className="products-pagination">
+            <span className="pagination-info">
               Page {pagination.page} of {pagination.pages} ({pagination.total} products)
             </span>
             <button
               disabled={pagination.page <= 1}
               onClick={() => setFilters({ ...filters, page: pagination.page - 1 })}
-              style={{
-                padding: '0.4rem 0.8rem',
-                opacity: pagination.page <= 1 ? 0.5 : 1,
-              }}
+              className="pagination-btn"
             >
               Previous
             </button>
             <button
               disabled={!pagination.hasNextPage}
               onClick={() => setFilters({ ...filters, page: pagination.page + 1 })}
-              style={{
-                padding: '0.4rem 0.8rem',
-                opacity: !pagination.hasNextPage ? 0.5 : 1,
-              }}
+              className="pagination-btn"
             >
               Next
             </button>

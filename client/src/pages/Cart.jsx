@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import './Cart.css';
 
 export default function Cart() {
   const [cart, setCart] = useState(null);
@@ -54,7 +55,7 @@ export default function Cart() {
   };
 
   if (loading) return (
-    <p style={{ textAlign: 'center', padding: '4rem', color: '#6b7280', fontSize: '0.95rem' }}>
+    <p className="cart-loading">
       Loading cart...
     </p>
   );
@@ -62,88 +63,65 @@ export default function Cart() {
   const items = cart?.items || [];
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem 1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+    <div className="cart-page">
+      <div className="cart-header">
         <h1>Shopping Cart</h1>
         {items.length > 0 && (
-          <button onClick={clearCart} style={{ padding: '0.4rem 1rem', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer' }}>
+          <button onClick={clearCart} className="btn-clear-cart">
             Clear Cart
           </button>
         )}
       </div>
 
       {items.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 1rem',
-          background: '#ffffff',
-          borderRadius: '16px',
-          border: '1px solid #e5e7eb',
-        }}>
-          <p style={{ fontSize: '1.05rem', marginBottom: '0.5rem', color: '#374151', fontWeight: '500' }}>
+        <div className="cart-empty">
+          <p className="cart-empty-title">
             Your cart is empty
           </p>
-          <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '1.5rem' }}>
+          <p className="cart-empty-sub">
             Looks like you haven't added anything yet.
           </p>
-          <Link to="/products" style={{
-            padding: '0.65rem 1.2rem',
-            background: '#4f46e5',
-            color: '#ffffff',
-            borderRadius: '8px',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-            fontWeight: '600',
-          }}>
+          <Link to="/products" className="btn-continue">
             Continue Shopping
           </Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="cart-items">
           {items.map((item) => {
             const product = item.product;
             const image = product.images && product.images.length > 0 ? product.images[0] : 'https://via.placeholder.com/100x100?text=No+Image';
             const subtotal = item.quantity * product.price;
             return (
-              <div key={item._id} style={{
-                display: 'flex',
-                gap: '1.1rem',
-                border: '1px solid #e5e7eb',
-                borderRadius: '12px',
-                padding: '1.1rem',
-                alignItems: 'center',
-                background: '#ffffff',
-                boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-              }}>
-                <img src={image} alt={product.name} style={{ width: '88px', height: '88px', objectFit: 'cover', borderRadius: '10px' }} />
-                <div style={{ flex: 1 }}>
-                  <Link to={`/products/${product._id}`} style={{ color: '#111827', textDecoration: 'none', fontWeight: '600', fontSize: '0.95rem' }}>{product.name}</Link>
-                  <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: '0.2rem' }}>{product.category?.name}</p>
-                  <p style={{ fontWeight: '600', marginTop: '0.25rem', color: '#111827' }}>₹{product.price.toLocaleString()}</p>
+              <div key={item._id} className="cart-item">
+                <img src={image} alt={product.name} className="cart-item-image" />
+                <div className="cart-item-details">
+                  <Link to={`/products/${product._id}`} className="cart-item-name">{product.name}</Link>
+                  <p className="cart-item-category">{product.category?.name}</p>
+                  <p className="cart-item-price">₹{product.price.toLocaleString()}</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <button onClick={() => updateQuantity(item._id, item.quantity - 1)} disabled={updating[item._id] || item.quantity <= 1} style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, border: '1px solid #d1d5db', borderRadius: '8px', background: '#ffffff', color: '#374151', fontSize: '1rem', fontWeight: '600' }}>-</button>
-                  <span style={{ minWidth: '26px', textAlign: 'center', fontWeight: '600' }}>{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item._id, item.quantity + 1)} disabled={updating[item._id] || item.quantity >= product.stock} style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, border: '1px solid #d1d5db', borderRadius: '8px', background: '#ffffff', color: '#374151', fontSize: '1rem', fontWeight: '600' }}>+</button>
+                <div className="cart-item-quantity">
+                  <button onClick={() => updateQuantity(item._id, item.quantity - 1)} disabled={updating[item._id] || item.quantity <= 1} className="qty-btn">-</button>
+                  <span className="qty-value">{item.quantity}</span>
+                  <button onClick={() => updateQuantity(item._id, item.quantity + 1)} disabled={updating[item._id] || item.quantity >= product.stock} className="qty-btn">+</button>
                 </div>
-                <div style={{ minWidth: '110px', textAlign: 'right' }}>
-                  <p style={{ fontWeight: '700', color: '#111827' }}>₹{subtotal.toLocaleString()}</p>
+                <div className="cart-item-subtotal">
+                  <p className="cart-item-subtotal-value">₹{subtotal.toLocaleString()}</p>
                 </div>
-                <button onClick={() => removeItem(item._id)} style={{ padding: '0.45rem 0.9rem', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '500', cursor: 'pointer' }}>Remove</button>
+                <button onClick={() => removeItem(item._id)} className="btn-remove">Remove</button>
               </div>
             );
           })}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.25rem', padding: '1.25rem', background: '#ffffff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
-            <div style={{ textAlign: 'right', minWidth: '200px' }}>
-              <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '0.25rem' }}>Total Items: {cart.totalItems}</p>
-              <p style={{ fontSize: '1.6rem', fontWeight: '700', color: '#111827' }}>₹{cart.totalAmount.toLocaleString()}</p>
+          <div className="cart-total">
+            <div className="cart-total-inner">
+              <p className="cart-total-count">Total Items: {cart.totalItems}</p>
+              <p className="cart-total-amount">₹{cart.totalAmount.toLocaleString()}</p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-            <Link to="/products" style={{ padding: '0.55rem 1rem', background: '#ffffff', color: '#374151', border: '1px solid #d1d5db', borderRadius: '8px', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '500' }}>Continue Shopping</Link>
-            <Link to="/checkout" style={{ padding: '0.65rem 1.2rem', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '600' }}>Proceed to Checkout</Link>
+          <div className="cart-actions">
+            <Link to="/products" className="btn-continue-shopping">Continue Shopping</Link>
+            <Link to="/checkout" className="btn-checkout">Proceed to Checkout</Link>
           </div>
         </div>
       )}
