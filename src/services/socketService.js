@@ -50,7 +50,7 @@ function initializeSocket(server) {
   });
 
   io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.user._id}`);
+    if (process.env.DEBUG_SOCKET === 'true') console.log(`User connected: ${socket.user._id}`);
 
     // Join user's personal room for notifications
     socket.join(`user:${socket.user._id}`);
@@ -66,18 +66,18 @@ function initializeSocket(server) {
         const { message, messageId } = data;
         const userId = socket.user._id;
 
-        console.log(`[Socket] Received message from user ${userId}:`, message);
+        if (process.env.DEBUG_SOCKET === 'true') console.log(`[Socket] Received message from user`);
 
         // Emit typing indicator to user
         socket.emit('typing', { isTyping: true });
 
         // Get AI response
-        console.log(`[Socket] Getting AI response...`);
+        if (process.env.DEBUG_SOCKET === 'true') console.log(`[Socket] Getting AI response...`);
         const response = await chat(userId, message, {
           userId,
         });
 
-        console.log(`[Socket] AI response received:`, response);
+        if (process.env.DEBUG_SOCKET === 'true') console.log(`[Socket] Response sent`);
 
         // Send response back to user
         socket.emit('receiveMessage', {
@@ -94,7 +94,7 @@ function initializeSocket(server) {
         const suggestions = getSuggestedReplies(userId);
         socket.emit('suggestions', { suggestions });
 
-        console.log(`[Socket] Response sent to user ${userId}`);
+        if (process.env.DEBUG_SOCKET === 'true') console.log(`[Socket] Response sent`);
       } catch (error) {
         console.error('[Socket] Message error:', error);
         socket.emit('error', { message: 'Failed to send message', error: error.message });
@@ -108,7 +108,7 @@ function initializeSocket(server) {
 
     // Handle disconnect
     socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.user._id}`);
+      if (process.env.DEBUG_SOCKET === 'true') console.log(`User disconnected`);
     });
   });
 

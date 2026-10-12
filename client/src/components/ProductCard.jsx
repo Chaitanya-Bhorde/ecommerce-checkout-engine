@@ -1,12 +1,17 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+export const FALLBACK_IMAGE = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="100%" height="100%" fill="#e5e7eb"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="18">No Image</text></svg>');
+
+export function resolveImage(src) {
+  if (!src || typeof src !== 'string' || !src.trim()) return FALLBACK_IMAGE;
+  return src;
+}
+
 export default function ProductCard({ product, onAddToCart, onToggleWishlist, isInWishlist, isInCart }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const image = product.images && product.images.length > 0
-    ? product.images[0]
-    : 'https://via.placeholder.com/400x300?text=No+Image';
+  const image = resolveImage(product.images && product.images.length > 0 ? product.images[0] : null);
 
   const inStock = product.stock > 0;
 
@@ -35,6 +40,8 @@ export default function ProductCard({ product, onAddToCart, onToggleWishlist, is
           <img
             src={image}
             alt={product.name}
+            loading="lazy"
+            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }}
             style={{
               width: '100%',
               height: '220px',

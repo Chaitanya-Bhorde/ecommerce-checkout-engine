@@ -1,6 +1,8 @@
 // Vector Store Service - Handles RAG (Retrieval-Augmented Generation)
 // Uses MongoDB Atlas Vector Search for intelligent information retrieval
 
+require('../../config/env');
+
 const { MongoClient } = require('mongodb');
 
 // MongoDB connection for vector search

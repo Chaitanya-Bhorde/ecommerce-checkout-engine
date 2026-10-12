@@ -1,4 +1,5 @@
- const mongoose = require('mongoose');
+ require('./env');
+const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {

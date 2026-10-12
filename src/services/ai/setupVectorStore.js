@@ -1,6 +1,8 @@
 // Setup script to populate vector store with knowledge base documents
 // Run this once to initialize the vector store with FAQ data
 
+require('../../config/env');
+
 require('dotenv').config();
 
 const { initVectorStore, bulkAddDocuments, createVectorIndex, clearAll } = require('./vectorStore');

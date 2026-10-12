@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { FALLBACK_IMAGE } from '../components/ProductCard';
 
 export default function Wishlist() {
   const [wishlist, setWishlist] = useState(null);
@@ -72,7 +73,7 @@ export default function Wishlist() {
               <div key={item.product?._id || item._id} className="wishlist-card">
                 <div className="wishlist-image">
                   {item.product?.images?.[0] ? (
-                    <img src={item.product.images[0]} alt={item.product.name} />
+                    <img src={item.product.images[0]} alt={item.product.name} loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                   ) : (
                     <div className="image-placeholder">📷</div>
                   )}

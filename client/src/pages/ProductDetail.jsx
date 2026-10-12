@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { FALLBACK_IMAGE } from '../components/ProductCard';
 import './ProductDetail.css';
 export default function ProductDetail() {
   const { id } = useParams();
@@ -138,7 +139,7 @@ export default function ProductDetail() {
   const inStock = product.stock > 0;
   const images = product.images && product.images.length > 0
     ? product.images
-    : ['https://via.placeholder.com/600x600?text=No+Image'];
+    : [FALLBACK_IMAGE];
 
   return (
     <div className="product-detail-page">
@@ -154,7 +155,7 @@ export default function ProductDetail() {
         <div className="product-detail-grid">
           <div className="product-gallery">
             <div className="gallery-main">
-              <img src={images[activeImage]} alt={product.name} />
+              <img src={images[activeImage]} alt={product.name} loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
             </div>
             {images.length > 1 && (
               <div className="gallery-thumbs">
@@ -165,7 +166,7 @@ export default function ProductDetail() {
                     className={idx === activeImage ? 'thumb active' : 'thumb'}
                     onClick={() => setActiveImage(idx)}
                   >
-                    <img src={img} alt={`${product.name} ${idx + 1}`} />
+                    <img src={img} alt={`${product.name} ${idx + 1}`} loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                   </button>
                 ))}
               </div>

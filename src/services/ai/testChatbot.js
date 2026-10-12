@@ -1,6 +1,8 @@
 // Test script to verify chatbot functionality
 // Run with: node src/services/ai/testChatbot.js
 
+require('../../config/env');
+
 const dotenv = require('dotenv');
 dotenv.config();
 

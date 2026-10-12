@@ -5,27 +5,31 @@
 const { llm, getLLM, AI_PROVIDER, callLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
-const { analyzeAndGetStrategy } = require('./sentimentAnalysis');
 const { getAllDocuments } = require('./knowledgeBase');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
 const User = require('../../models/User');
+const Cart = require('../../models/Cart');
+const Wishlist = require('../../models/Wishlist');
+const Notification = require('../../models/Notification');
 const Conversation = require('../../models/Conversation');
 const ChatMessage = require('../../models/ChatMessage');
 const SupportTicket = require('../../models/SupportTicket');
 
+function debugLog(...args) {
+  if (process.env.DEBUG_AI === 'true') console.log(...args);
+}
+
 async function getUserOrders(userId, limit = 5) {
   try {
-    // Validate userId is a valid ObjectId before querying
-    if (!userId || userId.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(userId)) {
-      console.log(`[getUserOrders] Invalid ObjectId format for userId: "${userId}" - returning empty orders`);
-      return [];
-    }
+    if (!userId || !/^[0-9a-fA-F]{24}$/.test(String(userId))) return [];
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 20);
     const orders = await Order.find({ user: userId })
       .sort({ createdAt: -1 })
-      .limit(limit)
+      .limit(lim)
       .select('_id total status createdAt items deliveryProgress')
-      .populate('items.product', 'name price category');
+      .populate('items.product', 'name price category')
+      .lean();
     
     // Map orders with detailed item information including categories
     return orders.map(order => ({
@@ -48,65 +52,74 @@ async function getUserOrders(userId, limit = 5) {
   }
 }
 
-async function getProductRecommendations(query = '') {
+async function getProductRecommendations(query = '', limit = 12) {
   try {
-    console.log(`[getProductRecommendations] Query: "${query}"`);
-    
-    // Get ALL active products with categories
-    const products = await Product.find({ isActive: true, stock: { $gt: 0 } })
-      .populate('category', 'name')
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .select('name price images category stock description');
-    
-    console.log(`[getProductRecommendations] Found ${products.length} total products`);
-    
-    
-    const mappedProducts = products.map(product => ({
-      id: product._id, 
-      name: product.name, 
+    const q = String(query || '').trim();
+    const filter = { isActive: true, stock: { $gt: 0 } };
+    if (q) filter.$text = { $search: q };
+    let products = [];
+    try {
+      products = await Product.find(filter)
+        .populate('category', 'name')
+        .sort(filter.$text ? undefined : { createdAt: -1 })
+        .limit(Math.min(Math.max(limit, 1), 20))
+        .select('name price images category stock description')
+        .lean();
+    } catch (_) {
+      products = [];
+    }
+    if (!products.length && q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      products = await Product.find({ isActive: true, stock: { $gt: 0 }, $or: [{ name: rx }, { description: rx }] })
+        .populate('category', 'name')
+        .sort({ createdAt: -1 })
+        .limit(Math.min(Math.max(limit, 1), 20))
+        .select('name price images category stock description')
+        .lean();
+    }
+    if (!products.length && !q) {
+      products = await Product.find({ isActive: true, stock: { $gt: 0 } })
+        .populate('category', 'name')
+        .sort({ createdAt: -1 })
+        .limit(Math.min(Math.max(limit, 1), 20))
+        .select('name price images category stock description')
+        .lean();
+    }
+    return products.map(product => ({
+      id: product._id,
+      name: product.name,
       price: product.price,
-      category: product.category?.name || 'General', 
-      stock: product.stock, 
+      category: product.category?.name || 'General',
+      stock: product.stock,
       image: product.images?.[0] || null,
     }));
-    
-    // If no query, return ALL products (not just first 5)
-    if (!query || query.trim() === '') {
-      console.log(`[getProductRecommendations] No query, returning ALL ${products.length} products`);
-      return mappedProducts;
-    }
-    
-    // Search for matching products
-    const queryLower = query.toLowerCase();
-    const filtered = products.filter(product => {
-      const productName = product.name.toLowerCase();
-      const categoryName = product.category?.name?.toLowerCase() || '';
-      const description = product.description?.toLowerCase() || '';
-      
-      // Match if query is in name, category, or description
-      return productName.includes(queryLower) || 
-             categoryName.includes(queryLower) || 
-             description.includes(queryLower);
-    });
-    
-    console.log(`[getProductRecommendations] Filtered to ${filtered.length} products matching "${query}"`);
-    
-    // If no matches, return ALL products so AI can see available categories
-    if (filtered.length === 0) {
-      console.log(`[getProductRecommendations] No matches, returning ALL ${products.length} products`);
-      return mappedProducts;
-    }
-    
-    // Return up to 20 matching products
-    return mappedProducts.filter(p => 
-      p.name.toLowerCase().includes(queryLower) || 
-      p.category.toLowerCase().includes(queryLower)
-    ).slice(0, 20);
   } catch (error) {
-    console.error('Error fetching products:', error);
     return [];
   }
+}
+
+function detectIntent(message) {
+  const t = String(message || '').toLowerCase();
+  const has = (...words) => words.some((w) => t.includes(w));
+  const intent = {
+    needsOrders: false, needsProducts: false, needsCart: false,
+    needsWishlist: false, needsNotifications: false, needsAccount: false,
+    needsAdmin: false, needsPolicy: false, wantsAllOrders: false,
+  };
+  if (has('all my orders', 'complete history', 'every order', 'all of them', 'all orders')) intent.wantsAllOrders = true;
+  if (has('order', 'track', 'status', 'deliver', 'payment', 'refund', 'return', 'cancel', 'receipt')) intent.needsOrders = true;
+  if (has('product', 'recommend', 'suggest', 'looking for', 'find', 'show me', 'price', 'cost', 'cheap', 'budget', 'premium', 'stock', 'available', 'categor')) intent.needsProducts = true;
+  if (has('cart', 'basket', 'checkout total', 'my total')) intent.needsCart = true;
+  if (has('wishlist', 'wish list', 'saved item', 'favorite')) intent.needsWishlist = true;
+  if (has('notif', 'unread', 'alert', 'message from')) intent.needsNotifications = true;
+  if (has('account', 'profile', 'my email', 'my name', 'who am i', 'order history')) { intent.needsAccount = true; intent.needsOrders = true; }
+  if (has('dashboard', 'revenue', 'sales', 'analytic', 'popular', 'customer')) intent.needsAdmin = true;
+  if (has('policy', 'policies', 'shipping', 'warranty', 'support hour', 'contact', 'how do i', 'how to')) intent.needsPolicy = true;
+  if (!intent.needsOrders && !intent.needsProducts && !intent.needsCart && !intent.needsWishlist && !intent.needsNotifications && !intent.needsAccount && !intent.needsAdmin && !intent.needsPolicy) {
+    if (t.length < 40) { intent.needsOrders = true; intent.needsProducts = true; }
+    else intent.needsPolicy = true;
+  }
+  return intent;
 }
 
 async function getDatabaseStats() {
@@ -234,22 +247,11 @@ async function chat(userId, message, context = {}, conversationId = null) {
   const userEmail = context.userEmail || '';
   const userRole = context.userRole || 'customer';
   const normalizedUserId = String(userId);
-  
-  console.log(`[Chatbot] ========================================`);
-  console.log(`[Chatbot] Processing message for user ${userName} (${normalizedUserId}): ${message}`);
-  console.log(`[Chatbot] Context received:`, JSON.stringify(context));
-  console.log(`[Chatbot] ========================================`);
-  console.log(`[Chatbot] AI_PROVIDER: ${AI_PROVIDER}`);
-  console.log(`[Chatbot] LLM object type: ${typeof llm}`);
-  console.log(`[Chatbot] LLM has invoke: ${typeof llm.invoke}`);
+
+  debugLog(`[Chatbot] Processing message for user ${userName} (${normalizedUserId})`);
+  debugLog(`[Chatbot] LLM has invoke: ${typeof llm.invoke}`);
   
   try {
-    // PART 2: Detect if user wants all orders
-    const allOrdersKeywords = ['all my orders', 'complete history', 'every order', 'all of them', 'all orders'];
-    const wantsAllOrders = allOrdersKeywords.some(kw => message.toLowerCase().includes(kw));
-    const orderLimit = wantsAllOrders ? 50 : 5;
-
-    // Get or create conversation
     let currentConversationId = conversationId;
     if (!currentConversationId) {
       // Create new conversation with auto-generated title
@@ -261,52 +263,52 @@ async function chat(userId, message, context = {}, conversationId = null) {
       currentConversationId = conversation._id;
     }
 
-    // Fetch conversation history from database
-    // PERF: history, RAG retrieval, product/order/stat queries are mutually
-    // independent, so they now share ONE round-trip instead of running back to
-    // back. The RAG lookup in particular does an embedding API call, so leaving
-    // it sequenced after the database work added its full latency on top.
-    const ragPromise = (async () => {
-      try {
-        console.log(`[RAG] Searching vector store...`);
-        const docs = await vectorStore.search(message, 3);
-        console.log(`[RAG] Retrieved ${docs.length} relevant documents`);
-        return docs;
-      } catch (ragError) {
-        console.log(`[RAG] Vector store unavailable, using database data only. Error: ${ragError.message}`);
-        return [];
-      }
-    })();
-
-    console.log(`[Chatbot] Fetching FRESH database stats for ${userName}...`);
-    
-    // For admins, fetch analytics data instead of personal orders
+    const intent = detectIntent(message);
+    const orderLimit = intent.wantsAllOrders ? 20 : 5;
     let userOrders = [];
     let popularProducts = [];
     let categoryAnalytics = [];
-    
-    const [historyMessages, relevantDocs, recommendations, stats, adminData, ordersData] = await Promise.all([
-      ChatMessage.find({ conversationId: currentConversationId })
+    const tasks = {
+      history: ChatMessage.find({ conversationId: currentConversationId })
         .sort({ timestamp: 1 })
-        .limit(20),
-      ragPromise,
-      getProductRecommendations(message),
-      getDatabaseStats(),
-      userRole === 'admin' ? Promise.all([
-        getPopularProducts(10),
+        .limit(10)
+        .lean(),
+    };
+    if (intent.needsPolicy) {
+      tasks.rag = (async () => {
+        try {
+          return await vectorStore.search(message, 2);
+        } catch (_) {
+          return [];
+        }
+      })();
+    } else {
+      tasks.rag = Promise.resolve([]);
+    }
+    tasks.recs = intent.needsProducts ? getProductRecommendations(message, 8) : Promise.resolve([]);
+    tasks.stats = (intent.needsOrders || intent.needsProducts || intent.needsAdmin)
+      ? getDatabaseStats()
+      : Promise.resolve(null);
+    if (userRole === 'admin' && intent.needsAdmin) {
+      tasks.admin = Promise.all([
+        getPopularProducts(5),
         getCategoryAnalytics(),
-        // Get all orders with user info for admin to see
-        Order.find({})
-          .populate('user', 'name email')
-          .sort({ createdAt: -1 })
-          .limit(20)
-          .select('_id total status createdAt items user'),
-        // Get all customers who placed orders
-        Order.distinct('user').then(userIds =>
-          User.find({ _id: { $in: userIds.filter(id => id) } }).select('name email')
-        ),
-      ]) : null,
-      userRole !== 'admin' ? getUserOrders(normalizedUserId, orderLimit) : null,
+        Order.find({}).populate('user', 'name email').sort({ createdAt: -1 }).limit(10).select('_id total status createdAt items user').lean(),
+      ]);
+    } else {
+      tasks.admin = Promise.resolve(null);
+    }
+    tasks.orders = (userRole !== 'admin' && intent.needsOrders)
+      ? getUserOrders(normalizedUserId, orderLimit)
+      : Promise.resolve([]);
+    tasks.cart = intent.needsCart ? Cart.findOne({ user: normalizedUserId }).populate('items.product', 'name price').lean() : Promise.resolve(null);
+    tasks.wishlist = intent.needsWishlist ? Wishlist.findOne({ user: normalizedUserId }).populate('items.product', 'name price').lean() : Promise.resolve(null);
+    tasks.notifs = intent.needsNotifications ? Notification.find({ userId: normalizedUserId }).sort({ createdAt: -1 }).limit(5).lean() : Promise.resolve([]);
+    tasks.account = intent.needsAccount ? User.findById(normalizedUserId).select('name email role createdAt').lean() : Promise.resolve(null);
+
+    const [historyMessages, relevantDocs, recommendations, stats, adminData, ordersData, cartData, wishlistData, notifData, accountData] = await Promise.all([
+      tasks.history, tasks.rag, tasks.recs, tasks.stats, tasks.admin, tasks.orders,
+      tasks.cart, tasks.wishlist, tasks.notifs, tasks.account,
     ]);
 
     const history = historyMessages.map(msg => ({
@@ -314,11 +316,11 @@ async function chat(userId, message, context = {}, conversationId = null) {
       content: msg.content,
     }));
 
-    if (userRole === 'admin') {
-      const [popular, categories, allOrders, allUsers] = adminData;
-      popularProducts = popular;
-      categoryAnalytics = categories;
-      userOrders = allOrders.map(order => ({
+    if (userRole === 'admin' && adminData) {
+      const [popular, categories, allOrders] = adminData;
+      popularProducts = popular || [];
+      categoryAnalytics = categories || [];
+      userOrders = (allOrders || []).map(order => ({
         id: order._id,
         total: order.total,
         status: order.status,
@@ -327,143 +329,87 @@ async function chat(userId, message, context = {}, conversationId = null) {
         customerName: order.user?.name || 'Guest',
         customerEmail: order.user?.email || 'N/A',
       }));
-
-      console.log(`[Chatbot] Admin analytics - Popular products: ${popularProducts.length}, Categories: ${categoryAnalytics.length}`);
-      console.log(`[Chatbot] Admin orders - ${userOrders.length} total, Customers who ordered: ${allUsers.length}`);
     } else {
-      userOrders = ordersData;
+      userOrders = ordersData || [];
     }
 
-    console.log(`[Chatbot] Stats (FRESH) - Orders: ${stats.totalOrders}, Products: ${stats.totalProducts}, Users: ${stats.totalUsers}`);
+    let systemPrompt = `You are a helpful support assistant for ShopEase. Talking to ${userName} (${userRole}). Be concise (under 80 words). Use ONLY the data below. Never invent prices, orders, or statuses. If data is missing, say so.`;
 
-    // relevantDocs was already retrieved in parallel above (see ragPromise).
-
-    // Build personalized context with ALL products always available
-    let systemPrompt = `You are a helpful customer support assistant for an e-commerce store called "ShopEase". You are talking to ${userName}.
-
-CURRENT USER:
-- Name: ${userName}
-- Email: ${userEmail}
-- Role: ${userRole}
-- Orders: ${userOrders.length > 0 ? userOrders.length + ' orders placed' : 'New customer (no orders yet)'}\n\n`;
-
-    systemPrompt += `DATABASE STATS:\n- Total Orders: ${stats.totalOrders}\n`;
-    // Add all status counts
-    if (stats.statusBreakdown) {
-      Object.entries(stats.statusBreakdown).forEach(([status, count]) => {
-        systemPrompt += `- ${status}: ${count}\n`;
-      });
-    } else {
-      systemPrompt += `- Pending: ${stats.pendingOrders}\n- Delivered: ${stats.deliveredOrders}\n- Cancelled: ${stats.cancelledOrders}\n`;
+    if (stats) {
+      systemPrompt += `\nSTATS: orders=${stats.totalOrders} products=${stats.totalProducts} users=${stats.totalUsers}`;
     }
-    systemPrompt += `- Products: ${stats.totalProducts}\n- Total Registered Users: ${stats.totalUsers}\n\n`;
-
     if (relevantDocs.length > 0) {
-      systemPrompt += `KNOWLEDGE BASE:\n`;
-      relevantDocs.forEach((doc, i) => { systemPrompt += `${i+1}. ${doc.pageContent}\n`; });
+      systemPrompt += `\nPOLICIES:`;
+      relevantDocs.forEach((doc) => { systemPrompt += ` ${doc.pageContent}`.slice(0, 400); });
     }
-
-    if (userRole === 'admin') {
-      // Admin analytics section
-      systemPrompt += `\nBUSINESS ANALYTICS (FOR ADMIN ONLY - USE THIS TO ANSWER BUSINESS QUESTIONS):\n`;
-      systemPrompt += `Total Customers: ${stats.totalUsers}\n`;
-      systemPrompt += `Total Orders: ${stats.totalOrders} (Pending: ${stats.pendingOrders}, Delivered: ${stats.deliveredOrders}, Cancelled: ${stats.cancelledOrders})\n`;
-      systemPrompt += `Total Products: ${stats.totalProducts}\n\n`;
-      
-      // Show all orders with customer names for admin
+    if (userRole === 'admin' && adminData) {
+      systemPrompt += `\nADMIN: customers=${stats ? stats.totalUsers : '?'} orders=${stats ? stats.totalOrders : '?'}`;
       if (userOrders.length > 0) {
-        systemPrompt += `\nALL ORDERS WITH CUSTOMER DETAILS:\n`;
-        userOrders.forEach((o, i) => {
-          systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status} - Customer: ${o.customerName} (${o.customerEmail}) - Date: ${new Date(o.date).toLocaleDateString()}\n`;
+        systemPrompt += `\nRECENT ORDERS:`;
+        userOrders.slice(0, 5).forEach((o) => {
+          systemPrompt += `\n#${String(o.id).slice(-8)} ₹${o.total} ${o.status} ${o.customerName || ''}`;
         });
-        systemPrompt += `\n`;
       }
-      
       if (popularProducts.length > 0) {
-        systemPrompt += `TOP SELLING PRODUCTS (by quantity sold):\n`;
-        popularProducts.forEach((p, i) => {
-          systemPrompt += `${i+1}. ${p.name} - ${p.totalQuantity} units sold - ₹${p.totalRevenue?.toFixed(2) || 0} revenue (${p.orderCount} orders)\n`;
+        systemPrompt += `\nTOP PRODUCTS:`;
+        popularProducts.slice(0, 5).forEach((p) => {
+          systemPrompt += `\n${p.name} x${p.totalQuantity}`;
         });
-        systemPrompt += `\n`;
       }
-      
-      if (categoryAnalytics.length > 0) {
-        systemPrompt += `CATEGORY-WISE SALES:\n`;
-        categoryAnalytics.forEach((cat, i) => {
-          systemPrompt += `${i+1}. ${cat._id}: ${cat.totalSales} units - ₹${cat.totalRevenue?.toFixed(2) || 0} revenue\n`;
-        });
-        systemPrompt += `\n`;
-      }
-      
-      systemPrompt += `CRITICAL FOR ADMIN: When admin asks about analytics, customers, products, or sales - USE THE DATA ABOVE. Never say "you have no orders" - you're the admin, not a customer!\n\n`;
     } else if (userOrders.length > 0) {
-      systemPrompt += `\n${userName}'S ORDERS WITH PRODUCT DETAILS:\n`;
-      const displayOrders = userOrders.slice(0, 10);
-      displayOrders.forEach((o, i) => {
-        systemPrompt += `${i+1}. Order #${o.id.toString().slice(-8)} - ₹${o.total} - ${o.status}\n`;
-        systemPrompt += `   Items:\n`;
-        o.itemDetails.forEach((item, idx) => {
-          systemPrompt += `   ${idx+1}. ${item.name} (${item.category}) - ₹${item.price} x ${item.quantity}\n`;
-        });
+      systemPrompt += `\nYOUR ORDERS:`;
+      userOrders.slice(0, 5).forEach((o) => {
+        systemPrompt += `\n#${String(o.id).slice(-8)} ₹${o.total} ${o.status} (${o.items} items)`;
       });
-      
-      if (userOrders.length > 10) {
-        systemPrompt += `\n...and ${userOrders.length - 10} more orders. Ask me about a specific order ID for full details.\n`;
-      }
-    } else if (!message.toLowerCase().includes('product') && !message.toLowerCase().includes('recommend')) {
-      systemPrompt += `\n${userName} has no orders yet - welcome them as a new customer!\n`;
     }
+    if (recommendations.length > 0) {
+      systemPrompt += `\nPRODUCTS:`;
+      recommendations.slice(0, 8).forEach((p) => {
+        systemPrompt += `\n${p.name} ₹${p.price} (${p.category}, ${p.stock} in stock)`;
+      });
+    }
+    if (cartData && cartData.items && cartData.items.length > 0) {
+      const total = cartData.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 0), 0);
+      systemPrompt += `\nCART: ${cartData.items.length} lines, total ₹${total}.`;
+      cartData.items.slice(0, 5).forEach((it) => {
+        systemPrompt += `\n${it.product?.name || 'Item'} x${it.quantity} ₹${it.price}`;
+      });
+    }
+    if (wishlistData && wishlistData.items && wishlistData.items.length > 0) {
+      systemPrompt += `\nWISHLIST (${wishlistData.items.length}):`;
+      wishlistData.items.slice(0, 5).forEach((it) => {
+        systemPrompt += `\n${it.product?.name || 'Item'} ₹${it.product?.price ?? ''}`;
+      });
+    }
+    if (notifData && notifData.length > 0) {
+      const unread = notifData.filter((n) => !n.read).length;
+      systemPrompt += `\nNOTIFICATIONS: ${notifData.length} recent, ${unread} unread.`;
+      notifData.slice(0, 3).forEach((n) => {
+        systemPrompt += `\n${n.title}: ${String(n.message || '').slice(0, 120)}`;
+      });
+    }
+    if (accountData) {
+      systemPrompt += `\nACCOUNT: ${accountData.name} <${accountData.email}> role=${accountData.role}`;
+    }
+    if (intent.wantsAllOrders && userOrders.length === 0 && userRole !== 'admin') {
+      systemPrompt += `\nNOTE: this user has no orders yet. Say so plainly.`;
+    }
+    if (systemPrompt.length > 3500) systemPrompt = systemPrompt.slice(0, 3500);
 
-    // ALWAYS show all products regardless of match
-    systemPrompt += `\nCOMPLETE PRODUCT CATALOG (ALL ${stats.totalProducts} PRODUCTS - THIS IS THE FULL LIST):\n`;
-    recommendations.forEach((p, i) => { 
-      const stockStatus = p.stock > 0 ? `${p.stock} in stock` : 'Out of stock';
-      systemPrompt += `- ${p.name} | ₹${p.price} | Category: ${p.category} | Stock: ${stockStatus}\n`; 
-    });
-    systemPrompt += `\n`;
-
-    systemPrompt += `\nCRITICAL RULES YOU MUST FOLLOW:
-1. Address user ONLY as "${userName}" - NEVER use any other name
-2. When user asks "do you have X category?", LOOK at ALL products above and check their categories
-3. If a product exists in the list, YOU HAVE IT - do NOT say "we don't have"
-4. If user says they saw a product like "wireless mouse", CHECK the product names above
-5. NEVER say "we don't have [category]" without first checking ALL products in the catalog above
-6. Use EXACT numbers from DATABASE STATS - never make up numbers
-7. List actual product names and prices from the catalog above when asked about products
-8. Be concise (under 80 words), polite, and helpful`;
-
-    console.log(`[Chatbot] System prompt built with ${recommendations.length} products`);
-
-    // Build messages array with history (ONLY include user messages - not previous AI responses)
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.filter(msg => msg.role === 'user').map(msg => ({ role: msg.role, content: msg.content })),
+      ...history.filter(msg => msg.role === 'user').slice(-4).map(msg => ({ role: msg.role, content: String(msg.content || '').slice(0, 500) })),
       { role: 'user', content: message },
     ];
 
-    console.log(`[Chatbot] Getting AI response from ${AI_PROVIDER}...`);
-    console.log(`[Chatbot] About to call llm.invoke() with ${messages.length} messages`);
-    console.log(`[Chatbot] Calling LLM with timeout...`);
-    const response = await llm.invoke(messages);
-    console.log(`[Chatbot] LLM response object type:`, typeof response, response ? Object.keys(response) : 'null');
-    // `let` (not `const`): the escalation path below appends the ticket
-    // acknowledgment to this string. Assigning to a const here used to throw
-    // "Assignment to constant variable", which silently swallowed the
-    // acknowledgment and reported escalate:false for escalated conversations.
+    const startedAt = Date.now();
+    const response = await llm.invoke(messages, { maxTokens: 350, timeout: 25000 });
+    const latencyMs = Date.now() - startedAt;
+    debugLog(`[Chatbot] LLM reply in ${latencyMs}ms`);
     let aiResponse = response.content;
-
-    console.log(`[Chatbot] ✅ Response for ${userName}: "${aiResponse.substring(0, 80)}..."`);
-
-    // PART 3: Check if should escalate to human
     let escalate = false;
     let supportTicket = null;
     escalate = shouldEscalateToHuman(message);
-
-    // PERF: the message inserts, the conversation timestamp touch and the
-    // support ticket are independent writes. Issuing them together removes
-    // three sequential database round-trips from the response path.
-    // Failure semantics are unchanged - they still run only AFTER the model
-    // call has succeeded, exactly as before.
     const [, , , ticketDoc] = await Promise.all([
       ChatMessage.create({
         conversationId: currentConversationId,
@@ -507,26 +453,26 @@ CURRENT USER:
       ticketId: supportTicket ? supportTicket._id.toString() : null,
     };
   } catch (error) {
-    console.error('[Chatbot] ❌ Error:', error.message);
-    console.error('[Chatbot] Stack:', error.stack);
-    console.error('[Chatbot] FULL ERROR OBJECT:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    console.error('[Chatbot] Error name:', error.name);
-    console.error('[Chatbot] Error cause:', error.cause);
-    console.error('[Chatbot] Error code:', error.code);
-    
-    // Provide a graceful fallback response based on user data if possible
+    if (process.env.DEBUG_AI === 'true') console.error('[Chatbot] Error:', error.message);
+    const msg = String((error && error.message) || '');
+    if (/timed out|timeout|abort|ETIMEDOUT|ECONNRESET/i.test(msg)) {
+      throw Object.assign(new Error('AI_PROVIDER_TIMEOUT'), { status: 504 });
+    }
+    if (/GROQ_API_KEY|OPENAI_API_KEY|not configured|401|403/i.test(msg)) {
+      throw Object.assign(new Error('AI_PROVIDER_UNAVAILABLE'), { status: 503 });
+    }
     try {
       const stats = await getDatabaseStats();
       return {
-        response: `Hi ${userName}! I'm currently experiencing a temporary issue with my AI service. Here's what I know: We have ${stats.totalOrders} total orders, ${stats.totalProducts} products available, and ${stats.totalUsers} registered users. How can I assist you further?`,
-        conversationId: null,
+        response: `Hi ${userName}! My AI service is briefly unavailable. We currently have ${stats.totalOrders} orders and ${stats.totalProducts} products. Please try again shortly.`,
+        conversationId: currentConversationId ? currentConversationId.toString() : null,
         escalate: false,
         ticketId: null,
       };
     } catch {
       return {
-        response: `Hi ${userName}! I'm experiencing a temporary technical issue. Our support team is available to help. Please try again in a few moments.`,
-        conversationId: null,
+        response: `Hi ${userName}! My AI service is briefly unavailable. Please try again shortly.`,
+        conversationId: currentConversationId ? currentConversationId.toString() : null,
         escalate: false,
         ticketId: null,
       };
@@ -595,4 +541,5 @@ module.exports = {
   getSuggestedReplies,
   getUserOrders,
   getProductRecommendations,
+  detectIntent,
 };

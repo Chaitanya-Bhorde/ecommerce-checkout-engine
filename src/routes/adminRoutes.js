@@ -31,7 +31,7 @@ router.use(admin);
 // Dashboard Stats
 router.get('/dashboard/stats', async (req, res) => {
   try {
-    console.log('[Admin Dashboard] Fetching stats...');
+    if (process.env.DEBUG_ADMIN === 'true') console.log('[Admin Dashboard] Fetching stats...');
     
     const [
       totalRevenue,
@@ -88,7 +88,7 @@ router.get('/dashboard/stats', async (req, res) => {
       }),
     ]);
 
-    console.log('[Admin Dashboard] Stats fetched successfully');
+    if (process.env.DEBUG_ADMIN === 'true') console.log('[Admin Dashboard] Stats fetched successfully');
 
     res.json({
       revenue: totalRevenue[0]?.total || 0,

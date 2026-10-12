@@ -36,8 +36,9 @@ const logger = winston.createLogger({
 });
 
 // Console logging in development
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   logger.add(new winston.transports.Console({
+    level: process.env.LOG_LEVEL || 'warn',
     format: winston.format.combine(
       winston.format.colorize(),
       logFormat
@@ -46,7 +47,16 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Morgan HTTP request logger middleware
-const httpLogger = morgan('combined', {
+const httpLogger = morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev', {
+  skip: (req, res) => {
+    if (process.env.HTTP_LOG === 'verbose') return false;
+    if (process.env.NODE_ENV === 'test') return true;
+    if (req.path === '/api/health') return true;
+    if (process.env.NODE_ENV !== 'production') {
+      return res.statusCode < 400;
+    }
+    return false;
+  },
   stream: {
     write: (message) => {
       logger.info(message.trim());

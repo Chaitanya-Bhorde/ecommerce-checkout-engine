@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { FALLBACK_IMAGE } from '../components/ProductCard';
+
 import './AdminProducts.css';
 
 // Category ID to name mapping for display
@@ -321,7 +323,7 @@ export default function AdminProducts() {
                 <div key={product._id} className="product-card">
                   <div className="product-image">
                     {product.images && product.images.length > 0 ? (
-                      <img src={product.images[0]} alt={product.name} />
+                      <img src={product.images[0]} alt={product.name} loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                     ) : (
                       <div className="image-placeholder">📷</div>
                     )}

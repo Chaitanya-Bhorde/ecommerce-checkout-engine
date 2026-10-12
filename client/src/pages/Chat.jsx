@@ -55,8 +55,14 @@ export default function Chat() {
   }, [user]);
 
   // Auto-scroll to bottom
+  const messagesContainerRef = useRef(null);
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages]);
 
   const loadConversations = async () => {
@@ -123,7 +129,8 @@ export default function Chat() {
   };
 
   const sendMessage = async (text = input) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || uploadingFile) return;
+    stickToBottomRef.current = true;
 
     const userMessage = {
       role: 'user',
@@ -158,12 +165,18 @@ export default function Chat() {
           loadConversations();
         }
       } else {
-        console.error('API error:', data);
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.message || 'AI is unavailable right now. Please try again shortly.', timestamp: new Date() }]);
       }
 
       setLoading(false);
     } catch (error) {
-      console.error('Chat error:', error);
+      const status = error.response?.status;
+      const msg = status === 504
+        ? 'The AI is taking too long. Please try a shorter question or try again.'
+        : status === 503
+          ? 'AI service is unavailable (missing key or provider down). Please try again later.'
+          : error.response?.data?.message || 'Failed to get a reply. Please try again.';
+      setMessages((prev) => [...prev, { role: 'assistant', content: msg, timestamp: new Date() }]);
       setLoading(false);
     }
   };
@@ -339,7 +352,14 @@ export default function Chat() {
           </div>
 
           {/* Messages Area */}
-          <div className="chat-messages-container">
+          <div
+            className="chat-messages-container"
+            ref={messagesContainerRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }}
+          >
             {messages.length === 0 && (
               <div className="chat-welcome-message">
                 <h2>Hi! 👋 I'm your AI assistant</h2>

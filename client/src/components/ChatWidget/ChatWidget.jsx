@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import io from 'socket.io-client';
 import './ChatWidget.css';
 
+const debugLog = (...args) => {
+  if (import.meta.env.DEV) console.log(...args);
+};
+
+
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -20,7 +25,7 @@ export default function ChatWidget() {
   // Initialize Socket.io connection
   useEffect(() => {
     if (isOpen && token) {
-      console.log('Connecting to socket with token:', token ? 'Token exists' : 'No token');
+      debugLog('Connecting to socket with token:', token ? 'Token exists' : 'No token');
       
       const newSocket = io('http://localhost:5000', {
         auth: { token },
@@ -28,7 +33,7 @@ export default function ChatWidget() {
       });
 
       newSocket.on('connect', () => {
-        console.log('Socket connected:', newSocket.id);
+        debugLog('Socket connected:', newSocket.id);
       });
 
       newSocket.on('connect_error', (error) => {
@@ -38,7 +43,7 @@ export default function ChatWidget() {
       });
 
       newSocket.on('receiveMessage', (data) => {
-        console.log('Received message:', data);
+        debugLog('Received message:', data);
         setMessages(prev => [...prev, data]);
         setLoading(false);
         setIsTyping(false);
@@ -50,12 +55,12 @@ export default function ChatWidget() {
       });
 
       newSocket.on('typing', (data) => {
-        console.log('Typing indicator:', data);
+        debugLog('Typing indicator:', data);
         setIsTyping(data.isTyping);
       });
 
       newSocket.on('suggestions', (data) => {
-        console.log('Suggestions:', data);
+        debugLog('Suggestions:', data);
         setSuggestions(data.suggestions || []);
       });
 
@@ -78,14 +83,22 @@ export default function ChatWidget() {
         newSocket.close();
       };
     } else {
-      console.log('Socket not initialized - isOpen:', isOpen, 'token:', token ? 'exists' : 'missing');
+      debugLog('Socket not initialized - isOpen:', isOpen, 'token:', token ? 'exists' : 'missing');
     }
   }, [isOpen, token]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll inside the panel only, never the page
+  const messagesContainerRef = useRef(null);
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+    if (!isOpen) return;
+    if (!stickToBottomRef.current) return;
+    const end = messagesEndRef.current;
+    const box = messagesContainerRef.current;
+    if (end && box) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }, [messages, isTyping, isOpen]);
 
   const loadChatHistory = async () => {
     try {
@@ -103,7 +116,7 @@ export default function ChatWidget() {
 
   const sendMessage = async (text = input) => {
     if (!text.trim() || loading) {
-      console.log('Cannot send message - empty:', !text.trim(), 'loading:', loading);
+      debugLog('Cannot send message - empty:', !text.trim(), 'loading:', loading);
       return;
     }
 
@@ -122,7 +135,7 @@ export default function ChatWidget() {
 
     try {
       // Use HTTP API directly (more reliable)
-      console.log('Sending message to AI:', text);
+      debugLog('Sending message to AI:', text);
       const token = localStorage.getItem('token');
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -242,8 +255,9 @@ export default function ChatWidget() {
       {!isOpen && (
         <button 
           className="chat-toggle-btn"
-          onClick={() => setIsOpen(true)}
+          onClick={(e) => { e.stopPropagation(); stickToBottomRef.current = true; setIsOpen(true); }}
           title="Chat with AI"
+          aria-label="Open chat"
         >
           💬
         </button>
@@ -303,7 +317,14 @@ export default function ChatWidget() {
           </div>
 
           {/* Messages Area */}
-          <div className="chat-messages">
+          <div
+            className="chat-messages"
+            ref={messagesContainerRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }}
+          >
             {messages.length === 0 && (
               <div className="chat-welcome">
                 <h4>Hi! 👋 I'm your AI assistant</h4>

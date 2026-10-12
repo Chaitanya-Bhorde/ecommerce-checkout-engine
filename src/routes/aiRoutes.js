@@ -12,6 +12,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+function debugLog(...args) {
+  if (process.env.DEBUG_AI === 'true') console.log(...args);
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -57,14 +61,14 @@ router.post('/chat', protect, async (req, res) => {
       });
     }
 
-    console.log(`[AI Route] User: ${userName} (${userEmail}) asked: "${message}"`);
+    debugLog(`[AI Route] User: ${userName} asked a question`);
 
     const agentResult = await runAgent(authenticatedUserId.toString(), message);
 
     let response;
     let chatResult = null;
     if (agentResult.handledByAgent) {
-      console.log(`[AI Route] Handled by agent (action: ${agentResult.action || 'confirmation/none'})`);
+      debugLog(`[AI Route] Handled by agent (action: ${agentResult.action || 'confirmation/none'})`);
       response = agentResult.response;
       
       // Save agent-handled messages to conversation history
@@ -101,7 +105,7 @@ router.post('/chat', protect, async (req, res) => {
         ticketId: null,
       };
     } else {
-      console.log('[AI Route] General query - using chat() with conversation support');
+      debugLog('[AI Route] General query - using chat() with conversation support');
       chatResult = await chat(authenticatedUserId.toString(), message, {
         userName,
         userEmail,

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { FALLBACK_IMAGE } from '../components/ProductCard';
 import './Cart.css';
 
 export default function Cart() {
@@ -89,11 +90,12 @@ export default function Cart() {
         <div className="cart-items">
           {items.map((item) => {
             const product = item.product;
-            const image = product.images && product.images.length > 0 ? product.images[0] : 'https://via.placeholder.com/100x100?text=No+Image';
+            if (!product) return null;
+            const image = product.images && product.images.length > 0 ? product.images[0] : FALLBACK_IMAGE;
             const subtotal = item.quantity * product.price;
             return (
               <div key={item._id} className="cart-item">
-                <img src={image} alt={product.name} className="cart-item-image" />
+                <img src={image} alt={product.name} className="cart-item-image" loading="lazy" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                 <div className="cart-item-details">
                   <Link to={`/products/${product._id}`} className="cart-item-name">{product.name}</Link>
                   <p className="cart-item-category">{product.category?.name}</p>
