@@ -495,7 +495,7 @@ export default function AdminProducts() {
                           const isUploaded = idx < formData.uploadedImages.length;
                           return (
                             <div key={idx} className="image-preview-item">
-                              <img src={url} alt={`Preview ${idx + 1}`} />
+                              <img src={url} alt={`Preview ${idx + 1}`} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                               <button
                                 type="button"
                                 onClick={() => isUploaded ? removeUploadedImage(idx) : removeImageUrl(idx - formData.uploadedImages.length)}

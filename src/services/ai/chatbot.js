@@ -5,6 +5,7 @@
 const { llm, getLLM, AI_PROVIDER, callLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
+const { searchProducts: searchCatalogProducts } = require('./agentTools');
 const { getAllDocuments } = require('./knowledgeBase');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
@@ -104,17 +105,18 @@ function detectIntent(message) {
   const intent = {
     needsOrders: false, needsProducts: false, needsCart: false,
     needsWishlist: false, needsNotifications: false, needsAccount: false,
-    needsAdmin: false, needsPolicy: false, wantsAllOrders: false,
+    needsAdmin: false, needsPolicy: false, wantsAllOrders: false, wantsStats: false,
   };
   if (has('all my orders', 'complete history', 'every order', 'all of them', 'all orders')) intent.wantsAllOrders = true;
   if (has('order', 'track', 'status', 'deliver', 'payment', 'refund', 'return', 'cancel', 'receipt')) intent.needsOrders = true;
-  if (has('product', 'recommend', 'suggest', 'looking for', 'find', 'show me', 'price', 'cost', 'cheap', 'budget', 'premium', 'stock', 'available', 'categor')) intent.needsProducts = true;
+  if (has('product', 'recommend', 'suggest', 'looking for', 'find', 'show me', 'price', 'cost', 'cheap', 'expensive', 'budget', 'premium', 'stock', 'available', 'categor')) intent.needsProducts = true;
   if (has('cart', 'basket', 'checkout total', 'my total')) intent.needsCart = true;
   if (has('wishlist', 'wish list', 'saved item', 'favorite')) intent.needsWishlist = true;
   if (has('notif', 'unread', 'alert', 'message from')) intent.needsNotifications = true;
   if (has('account', 'profile', 'my email', 'my name', 'who am i', 'order history')) { intent.needsAccount = true; intent.needsOrders = true; }
   if (has('dashboard', 'revenue', 'sales', 'analytic', 'popular', 'customer')) intent.needsAdmin = true;
   if (has('policy', 'policies', 'shipping', 'warranty', 'support hour', 'contact', 'how do i', 'how to')) intent.needsPolicy = true;
+  if (/\bstats\b|\bstatistics\b|\btotal\b\s+(orders|products|users|customers|sales)\b|how many (orders|products|users|customers) does/.test(t)) intent.wantsStats = true;
   if (!intent.needsOrders && !intent.needsProducts && !intent.needsCart && !intent.needsWishlist && !intent.needsNotifications && !intent.needsAccount && !intent.needsAdmin && !intent.needsPolicy) {
     if (t.length < 40) { intent.needsOrders = true; intent.needsProducts = true; }
     else intent.needsPolicy = true;
@@ -251,8 +253,10 @@ async function chat(userId, message, context = {}, conversationId = null) {
   debugLog(`[Chatbot] Processing message for user ${userName} (${normalizedUserId})`);
   debugLog(`[Chatbot] LLM has invoke: ${typeof llm.invoke}`);
   
+  let currentConversationId;
+
   try {
-    let currentConversationId = conversationId;
+    currentConversationId = conversationId;
     if (!currentConversationId) {
       // Create new conversation with auto-generated title
       const title = message.substring(0, 40) + (message.length > 40 ? '...' : '');
@@ -285,9 +289,12 @@ async function chat(userId, message, context = {}, conversationId = null) {
     } else {
       tasks.rag = Promise.resolve([]);
     }
-    tasks.recs = intent.needsProducts ? getProductRecommendations(message, 8) : Promise.resolve([]);
-    tasks.stats = (intent.needsOrders || intent.needsProducts || intent.needsAdmin)
+    tasks.recs = intent.needsProducts ? getProductRecommendations(message, 8).catch(() => []) : Promise.resolve([]);
+    tasks.stats = (intent.needsAdmin || intent.wantsStats)
       ? getDatabaseStats()
+      : Promise.resolve(null);
+    tasks.matched = intent.needsProducts
+      ? searchCatalogProducts(message, 5).catch(() => ({ success: false, term: null, products: [] }))
       : Promise.resolve(null);
     if (userRole === 'admin' && intent.needsAdmin) {
       tasks.admin = Promise.all([
@@ -306,15 +313,45 @@ async function chat(userId, message, context = {}, conversationId = null) {
     tasks.notifs = intent.needsNotifications ? Notification.find({ userId: normalizedUserId }).sort({ createdAt: -1 }).limit(5).lean() : Promise.resolve([]);
     tasks.account = intent.needsAccount ? User.findById(normalizedUserId).select('name email role createdAt').lean() : Promise.resolve(null);
 
-    const [historyMessages, relevantDocs, recommendations, stats, adminData, ordersData, cartData, wishlistData, notifData, accountData] = await Promise.all([
+    const [historyMessages, relevantDocs, recommendations, stats, adminData, ordersData, cartData, wishlistData, notifData, accountData, matchedProducts] = await Promise.all([
       tasks.history, tasks.rag, tasks.recs, tasks.stats, tasks.admin, tasks.orders,
-      tasks.cart, tasks.wishlist, tasks.notifs, tasks.account,
+      tasks.cart, tasks.wishlist, tasks.notifs, tasks.account, tasks.matched,
     ]);
 
     const history = historyMessages.map(msg => ({
       role: msg.role,
       content: msg.content,
     }));
+
+    let productSearch = matchedProducts;
+    if (!productSearch || !productSearch.term) {
+      const priorUserMessages = history
+        .filter((msg) => msg.role === 'user')
+        .map((msg) => String(msg.content || ''))
+        .slice(-3)
+        .reverse();
+      for (const prior of priorUserMessages) {
+        const retry = await searchCatalogProducts(prior, 5).catch(() => null);
+        if (retry && retry.products && retry.products.length > 0) {
+          productSearch = retry;
+          break;
+        }
+      }
+    }
+
+    let priceExtremes = null;
+    if (intent.needsProducts) {
+      const extremeMatch = String(message).toLowerCase().match(/\b(cheapest|least expensive|lowest priced|costliest|most expensive|highest priced)\b/);
+      if (extremeMatch) {
+        const ascending = /cheapest|least expensive|lowest priced/.test(extremeMatch[1]);
+        priceExtremes = await Product.find({ isActive: true, stock: { $gt: 0 } })
+          .sort(ascending ? { price: 1 } : { price: -1 })
+          .limit(3)
+          .select('name price')
+          .lean()
+          .catch(() => null);
+      }
+    }
 
     if (userRole === 'admin' && adminData) {
       const [popular, categories, allOrders] = adminData;
@@ -326,8 +363,8 @@ async function chat(userId, message, context = {}, conversationId = null) {
         status: order.status,
         date: order.createdAt,
         items: order.items.length,
-        customerName: order.user?.name || 'Guest',
-        customerEmail: order.user?.email || 'N/A',
+        customerName: order.user?.name || '—',
+        customerEmail: order.user?.email || '',
       }));
     } else {
       userOrders = ordersData || [];
@@ -368,6 +405,30 @@ async function chat(userId, message, context = {}, conversationId = null) {
         systemPrompt += `\n${p.name} ₹${p.price} (${p.category}, ${p.stock} in stock)`;
       });
     }
+    if (productSearch) {
+      if (!productSearch.success) {
+        systemPrompt += `\nPRODUCT SEARCH FAILED: the catalog lookup is unavailable right now. Tell the user you could not check the catalog just now and ask them to try again shortly. Do NOT say the product does not exist. Do not invent any product or price.`;
+      } else if (productSearch.products.length === 0) {
+        if (productSearch.term) {
+          systemPrompt += `\nPRODUCT SEARCH: no active product matched "${productSearch.term}". Say you could not find that product in the catalog and suggest rephrasing or browsing the Products page. Never invent a product or price.`;
+        }
+      } else if (productSearch.products.length === 1) {
+        const m = productSearch.products[0];
+        systemPrompt += `\nPRODUCT MATCH: ${m.name} - price Rs.${m.price}, stock ${m.stock} units, category ${m.category}, id ${m.id}. Answer the user's question using exactly these facts.`;
+      } else {
+        systemPrompt += `\nPRODUCT MATCHES (${productSearch.products.length}):`;
+        productSearch.products.forEach((m) => {
+          systemPrompt += `\n${m.name} - Rs.${m.price} (stock ${m.stock}, ${m.category})`;
+        });
+        systemPrompt += `\nMultiple products match the question. List these options with their prices and ask which one the user means. Do not pick one arbitrarily and do not invent.`;
+      }
+    }
+    if (priceExtremes && priceExtremes.length > 0) {
+      systemPrompt += `\nPRICE RANKING from the live catalog (use exactly these):`;
+      priceExtremes.forEach((p) => {
+        systemPrompt += `\n${p.name} - Rs.${p.price}`;
+      });
+    }
     if (cartData && cartData.items && cartData.items.length > 0) {
       const total = cartData.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 0), 0);
       systemPrompt += `\nCART: ${cartData.items.length} lines, total ₹${total}.`;
@@ -398,7 +459,10 @@ async function chat(userId, message, context = {}, conversationId = null) {
 
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.filter(msg => msg.role === 'user').slice(-4).map(msg => ({ role: msg.role, content: String(msg.content || '').slice(0, 500) })),
+      ...history.slice(-6).map(msg => ({
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: String(msg.content || '').slice(0, 500),
+      })),
       { role: 'user', content: message },
     ];
 
@@ -458,7 +522,7 @@ async function chat(userId, message, context = {}, conversationId = null) {
     if (/timed out|timeout|abort|ETIMEDOUT|ECONNRESET/i.test(msg)) {
       throw Object.assign(new Error('AI_PROVIDER_TIMEOUT'), { status: 504 });
     }
-    if (/GROQ_API_KEY|OPENAI_API_KEY|not configured|401|403/i.test(msg)) {
+    if (/GROQ_API_KEY|OPENAI_API_KEY|not configured|401|403|model_not_found|does not exist or you do not have access/i.test(msg)) {
       throw Object.assign(new Error('AI_PROVIDER_UNAVAILABLE'), { status: 503 });
     }
     try {

@@ -5,7 +5,7 @@ const { ChatOllama } = require("@langchain/ollama");
 
 // Check which AI provider to use
 const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || '25000', 10);
 const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS || '400', 10);
 
@@ -89,7 +89,7 @@ async function callLLM(messages, options = {}) {
         return await callGroq(messages, maxTokens, temperature, timeout, stream, onToken);
       } catch (err) {
         lastError = err;
-        if (err.status === 401 || err.status === 403 || err.status === 400) break;
+        if (err.status === 401 || err.status === 403 || err.status === 400 || err.status === 404) break;
         if (attempt === 1) await new Promise((r) => setTimeout(r, 500));
       }
     }
@@ -178,5 +178,6 @@ module.exports = {
   getLLM,
   llmConfigs,
   AI_PROVIDER,
+  GROQ_MODEL,
   callLLM,
 };

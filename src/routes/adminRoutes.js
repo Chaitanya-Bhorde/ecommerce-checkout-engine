@@ -23,6 +23,7 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const Ledger = require('../models/Ledger');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.use(protect);
@@ -43,10 +44,25 @@ router.get('/dashboard/stats', async (req, res) => {
       totalCategories,
       activeCategories,
     ] = await Promise.all([
-      // Total revenue from completed orders
-      Order.aggregate([
-        { $match: { status: 'delivered' } },
-        { $group: { _id: null, total: { $sum: '$total' } } },
+      // Settled revenue: completed ledger payments minus completed refunds
+      Ledger.aggregate([
+        { $match: { status: 'completed' } },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ['$type', 'payment'] }, then: '$amount' },
+                    { case: { $eq: ['$type', 'refund'] }, then: { $multiply: ['$amount', -1] } },
+                  ],
+                  default: 0,
+                },
+              },
+            },
+          },
+        },
       ]).catch(err => {
         console.error('[Admin Dashboard] Error fetching revenue:', err);
         return [{ total: 0 }];
@@ -282,25 +298,43 @@ router.get('/ledger', async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, Number(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const [entries, total] = await Promise.all([
-      require('../models/Ledger').find(filter)
+    const [entries, total, summary, settled] = await Promise.all([
+      Ledger.find(filter)
         .populate('order', 'total status')
         .populate('user', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
-      require('../models/Ledger').countDocuments(filter),
-    ]);
-
-    const summary = await require('../models/Ledger').aggregate([
-      { $match: filter },
-      {
-        $group: {
-          _id: null,
-          totalEntries: { $sum: 1 },
-          totalAmount: { $sum: '$amount' },
+      Ledger.countDocuments(filter),
+      Ledger.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            totalEntries: { $sum: 1 },
+            totalAmount: { $sum: '$amount' },
+          },
         },
-      },
+      ]),
+      Ledger.aggregate([
+        { $match: { ...filter, status: 'completed' } },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ['$type', 'payment'] }, then: '$amount' },
+                    { case: { $eq: ['$type', 'refund'] }, then: { $multiply: ['$amount', -1] } },
+                  ],
+                  default: 0,
+                },
+              },
+            },
+          },
+        },
+      ]),
     ]);
 
     res.json({
@@ -313,7 +347,11 @@ router.get('/ledger', async (req, res) => {
         hasNextPage: pageNum * limitNum < total,
         hasPrevPage: pageNum > 1,
       },
-      summary: summary[0] || { totalEntries: 0, totalAmount: 0 },
+      summary: {
+        totalEntries: summary[0]?.totalEntries || 0,
+        totalAmount: summary[0]?.totalAmount || 0,
+        settledAmount: settled[0]?.total || 0,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

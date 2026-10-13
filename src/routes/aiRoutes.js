@@ -126,9 +126,16 @@ router.post('/chat', protect, async (req, res) => {
     });
   } catch (error) {
     console.error('Chat API error:', error);
-    res.status(500).json({
+    const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
+    let message = 'Failed to get AI response. Please try again.';
+    if (status === 504) {
+      message = 'The AI service took too long to respond. Please try again.';
+    } else if (status === 503) {
+      message = 'The AI service is temporarily unavailable. Please try again shortly.';
+    }
+    res.status(status).json({
       success: false,
-      message: 'Failed to get AI response. Please try again.',
+      message,
     });
   }
 });

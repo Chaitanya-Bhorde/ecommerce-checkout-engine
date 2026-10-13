@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { FALLBACK_IMAGE } from '../components/ProductCard';
 
 // Generate proper UUID v4 using Web Crypto API
 const generateUUID = () => {
@@ -507,7 +508,7 @@ export default function Checkout({ onCartUpdate }) {
                   <div key={item._id || item.product} className="cart-item">
                     <div className="item-image">
                       {item.product?.images?.[0] ? (
-                        <img src={item.product.images[0]} alt={item.product.name} />
+                        <img src={item.product.images[0]} alt={item.product.name} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGE; }} />
                       ) : (
                         <div className="image-placeholder">📷</div>
                       )}

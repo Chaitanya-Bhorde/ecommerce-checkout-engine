@@ -142,10 +142,10 @@ export default function AdminOrders() {
                       <td>
                         <div className="customer-info">
                           <span className="customer-name">
-                            {order.user?.name || 'N/A'}
+                            {order.user?.name || '—'}
                           </span>
                           <span className="customer-email">
-                            {order.user?.email || 'N/A'}
+                            {order.user?.email || ''}
                           </span>
                         </div>
                       </td>

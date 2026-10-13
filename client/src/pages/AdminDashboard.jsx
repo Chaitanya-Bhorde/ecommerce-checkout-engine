@@ -59,7 +59,6 @@ export default function AdminDashboard() {
       value: `₹${stats?.revenue?.toFixed(2) || '0.00'}`,
       icon: '💰',
       color: '#10b981',
-      trend: '+12.5%',
       link: '/admin/ledger'
     },
     {
@@ -67,7 +66,6 @@ export default function AdminDashboard() {
       value: stats?.orders?.total || 0,
       icon: '📦',
       color: '#3b82f6',
-      trend: '+8.2%',
       link: '/admin/orders'
     },
     {
@@ -75,7 +73,6 @@ export default function AdminDashboard() {
       value: stats?.customers?.total || 0,
       icon: '👥',
       color: '#8b5cf6',
-      trend: '+5.1%',
       link: '/admin/customers'
     },
     {
@@ -174,10 +171,10 @@ export default function AdminDashboard() {
                       <td>
                         <div className="customer-info">
                           <span className="customer-name">
-                            {order.user?.name || 'N/A'}
+                            {order.user?.name || '—'}
                           </span>
                           <span className="customer-email">
-                            {order.user?.email || 'N/A'}
+                            {order.user?.email || ''}
                           </span>
                         </div>
                       </td>

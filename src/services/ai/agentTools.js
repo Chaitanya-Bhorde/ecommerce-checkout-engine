@@ -206,28 +206,86 @@ async function getOrderDetails(orderId, userId) {
 
 /**
  * Tool: Search products
- * AI can search products for recommendations
+ * Deterministic catalog lookup: extracts a product term from natural language
+ * and matches it against active product names with whitespace/case-insensitive
+ * normalization (e.g. "wallpaper" matches "WALL Paper").
  */
+const PRODUCT_TERM_STOPWORDS = new Set([
+  'what', 'whats', 'is', 'are', 'was', 'were', 'do', 'does', 'did', 'the', 'a', 'an',
+  'of', 'for', 'to', 'in', 'on', 'at', 'and', 'or', 'my', 'your', 'me', 'i', 'we',
+  'you', 'it', 'its', 'this', 'that', 'these', 'those', 'how', 'much', 'many', 'can',
+  'could', 'would', 'should', 'please', 'tell', 'give', 'show', 'find', 'get', 'buy',
+  'purchase', 'price', 'cost', 'rs', 'inr', 'rupees', 'available', 'availability',
+  'stock', 'quantity', 'qty', 'have', 'has', 'with', 'about', 'there', 'here', 'any',
+  'some', 'which', 'who', 'when', 'why', 'where', 'product', 'products', 'item',
+  'items', 'thing', 'stuff', 'really', 'just', 'actually', 'now', 'today', 'need',
+  'want', 'check', 'know', 'cheapest', 'expensive', 'least', 'lowest', 'highest',
+  'premium', 'budget', 'looking', 'recommend', 'recommendation', 'suggest',
+  'total', 'orders', 'users', 'customers', 'store', 'sales', 'does', 'our',
+  'hello', 'hey', 'thanks', 'thank', 'yes', 'yeah', 'ok', 'okay', 'bye',
+  'goodbye', 'help', 'support', 'morning', 'evening', 'welcome', 'sell',
+  'selling', 'carry', 'got', 'offer', 'offers',
+]);
+
+function normalizeProductKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractProductTerm(text) {
+  const cleaned = String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  const words = cleaned.split(' ').filter((w) => w.length > 1 && !PRODUCT_TERM_STOPWORDS.has(w));
+  if (!words.length || words.length > 4) return null;
+  return words.join(' ');
+}
+
 async function searchProducts(query, limit = 5) {
   try {
-    // Use simple text matching instead of regex to avoid Mongoose errors
-    const products = await Product.find({
-      isActive: true,
-      stock: { $gt: 0 },
-    })
-      .populate('category', 'name')
-      .limit(limit)
-      .select('name price images category stock description');
+    const term = extractProductTerm(query);
+    if (!term) return { success: true, term: null, products: [] };
 
-    // Filter products manually based on query
-    const filteredProducts = products.filter(product => {
-      const searchText = `${product.name} ${product.category?.name || ''}`.toLowerCase();
-      return searchText.includes(query.toLowerCase());
-    });
+    const normTerm = normalizeProductKey(term);
+    const singleWord = !term.includes(' ');
+    const patterns = [
+      new RegExp(escapeRegex(term), 'i'),
+      new RegExp(term.split(/\s+/).map(escapeRegex).join('\\s+'), 'i'),
+    ];
+    if (singleWord && normTerm.length >= 5) {
+      patterns.push(new RegExp(escapeRegex(normTerm.slice(0, 4)), 'i'));
+    }
+
+    const candidates = await Product.find({ isActive: true, name: { $in: patterns } })
+      .populate('category', 'name')
+      .limit(100)
+      .select('name price stock category description');
+
+    const scored = [];
+    for (const product of candidates) {
+      const normName = normalizeProductKey(product.name);
+      let score = 0;
+      if (normName === normTerm) score = 100;
+      else if (normName.startsWith(normTerm)) score = 80;
+      else if (normName.includes(normTerm)) score = 60;
+      else {
+        const termWords = term.split(/\s+/).filter((w) => w.length > 2);
+        if (termWords.length && termWords.every((w) => normName.includes(w))) score = 40;
+      }
+      if (score > 0) scored.push({ product, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
 
     return {
       success: true,
-      products: filteredProducts.slice(0, limit).map(product => ({
+      term,
+      products: scored.slice(0, Math.min(Math.max(limit, 1), 10)).map(({ product }) => ({
         id: product._id,
         name: product.name,
         price: product.price,
@@ -241,6 +299,8 @@ async function searchProducts(query, limit = 5) {
     console.error('Search products error:', error);
     return {
       success: false,
+      term: null,
+      products: [],
       message: 'Failed to search products',
     };
   }
@@ -363,4 +423,6 @@ module.exports = {
   searchProducts,
   applyDiscountCode,
   getUserRecentOrders,
+  extractProductTerm,
+  normalizeProductKey,
 };

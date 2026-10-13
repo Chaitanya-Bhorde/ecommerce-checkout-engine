@@ -93,6 +93,13 @@ export default function AdminLedger() {
                 <p className="summary-value">₹{summary.totalAmount.toFixed(2)}</p>
               </div>
             </div>
+            <div className="summary-card">
+              <div className="summary-icon">🏦</div>
+              <div className="summary-content">
+                <p className="summary-label">Total Revenue</p>
+                <p className="summary-value">₹{(summary.settledAmount || 0).toFixed(2)}</p>
+              </div>
+            </div>
           </div>
         )}
 
