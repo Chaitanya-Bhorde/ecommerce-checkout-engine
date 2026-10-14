@@ -145,6 +145,27 @@ describe('AI chatbot — missing records and provider failures', () => {
     await expect(chat(u._id.toString(), 'hi', { userName: 'A', userRole: 'customer' }))
       .rejects.toMatchObject({ message: 'AI_PROVIDER_UNAVAILABLE', status: 503 });
   });
+
+  it('never leaks store order/product counts to customers in the provider-failure fallback', async () => {
+    const u = await User.create({ name: 'A', email: 'fb@x.com', password: 'password123', role: 'customer' });
+    const p = await createProduct({ price: 250 });
+    await makeOrder(u._id, p._id, 250, 'shipped');
+    llm.invoke.mockRejectedValue(new Error('Groq API error 500: upstream exploded'));
+    const res = await chat(u._id.toString(), 'hi', { userName: 'A', userRole: 'customer' });
+    expect(res.response).toMatch(/briefly unavailable/i);
+    expect(res.response).not.toMatch(/\d+ orders/);
+    expect(res.response).not.toMatch(/\d+ products/);
+  });
+
+  it('retains store counts for admins in the provider-failure fallback', async () => {
+    const admin = await User.create({ name: 'Admin', email: 'adminfb@x.com', password: 'password123', role: 'admin' });
+    const p = await createProduct({ price: 250 });
+    await makeOrder(admin._id, p._id, 250, 'shipped');
+    llm.invoke.mockRejectedValue(new Error('Groq API error 500: upstream exploded'));
+    const res = await chat(admin._id.toString(), 'hi', { userName: 'Admin', userRole: 'admin' });
+    expect(res.response).toMatch(/briefly unavailable/i);
+    expect(res.response).toMatch(/\d+ orders/);
+  });
 });
 
 describe('AI chatbot — product retrieval from live catalog', () => {
@@ -215,12 +236,25 @@ describe('AI chatbot — product retrieval from live catalog', () => {
     }
   });
 
-  it('does not inject dashboard statistics into product answers', async () => {
+  it('never exposes store statistics to customers, but allows them for admins', async () => {
     const u = await makeUser('stats@x.com');
     await createProduct({ name: 'WALL Paper', price: 350 });
     await chat(u._id.toString(), 'What is the price of wallpaper?', ctx);
     expect(lastPrompt()).not.toContain('STATS:');
-    await chat(u._id.toString(), 'show me total orders and users', ctx);
+    for (const q of [
+      'show me total orders and users',
+      'how many orders does the store have?',
+      'give me your sales statistics',
+      'what is the total revenue of the store?',
+    ]) {
+      llm.invoke.mockClear();
+      await chat(u._id.toString(), q, ctx);
+      expect(lastPrompt()).not.toContain('STATS:');
+      expect(lastPrompt()).not.toContain('ADMIN:');
+    }
+    const admin = await User.create({ name: 'AdminStats', email: 'adminstats@x.com', password: 'password123', role: 'admin' });
+    llm.invoke.mockClear();
+    await chat(admin._id.toString(), 'show me total orders and users', { userName: 'AdminStats', userRole: 'admin' });
     expect(lastPrompt()).toContain('STATS:');
   });
 
@@ -265,5 +299,99 @@ describe('AI chatbot — product retrieval from live catalog', () => {
     expect(ranking.indexOf('Alpha Item - Rs.100')).toBeGreaterThan(-1);
     expect(ranking.indexOf('Alpha Item - Rs.100')).toBeLessThan(ranking.indexOf('Beta Item - Rs.200'));
     expect(ranking.indexOf('Beta Item - Rs.200')).toBeLessThan(ranking.indexOf('Gamma Item - Rs.300'));
+  });
+});
+
+describe('AI chatbot — greeting intent', () => {
+  const ctx = { userName: 'A', userRole: 'customer' };
+  const mk = (email) => User.create({ name: 'A', email, password: 'password123', role: 'customer' });
+
+  it('treats "hiii" and greeting variants as greetings, never product searches', async () => {
+    const ProductModel = require('../models/Product');
+    const spy = jest.spyOn(ProductModel, 'find');
+    const u = await mk('greet1@x.com');
+    try {
+      for (const g of ['hiii', 'hii', 'heyyy', 'hellooo', 'hello', 'hey', 'good morning', 'how are you', 'Hi!!!', 'yo', 'namaste']) {
+        spy.mockClear();
+        llm.invoke.mockClear();
+        await chat(u._id.toString(), g, ctx);
+        const prompt = lastPrompt();
+        expect(prompt).not.toContain('PRODUCT SEARCH');
+        expect(prompt).not.toContain('PRODUCT MATCH');
+        expect(prompt).not.toContain('STATS:');
+        expect(spy).not.toHaveBeenCalled();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still retrieves the real product for "hi, what is the price of wallpaper?"', async () => {
+    const u = await mk('greet2@x.com');
+    await createProduct({ name: 'WALL Paper', price: 350, stock: 5 });
+    await chat(u._id.toString(), 'hi, what is the price of wallpaper?', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('PRODUCT MATCH:');
+    expect(prompt).toContain('WALL Paper');
+    expect(prompt).toContain('Rs.350');
+  });
+
+  it('reports product-not-found only for genuine product searches', async () => {
+    const u = await mk('greet3@x.com');
+    await chat(u._id.toString(), 'hiii', ctx);
+    expect(lastPrompt()).not.toContain('no active product matched');
+    await chat(u._id.toString(), 'price of quantum flux router', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('no active product matched');
+    expect(prompt).toContain('quantum flux router');
+  });
+
+  it('preserves follow-up product context after a greeting', async () => {
+    const u = await mk('greet4@x.com');
+    await createProduct({ name: 'WALL Paper', price: 350, stock: 5 });
+    const first = await chat(u._id.toString(), 'What is the price of wallpaper?', ctx);
+    await chat(u._id.toString(), 'hello!', ctx, first.conversationId);
+    const prompt = lastPrompt();
+    expect(prompt).not.toContain('PRODUCT SEARCH');
+    expect(prompt).toContain('WALL Paper');
+    expect(prompt).toContain('Rs.350');
+  });
+});
+
+describe('AI chatbot — price-range queries', () => {
+  const ctx = { userName: 'A', userRole: 'customer' };
+  const mk = (email) => User.create({ name: 'A', email, password: 'password123', role: 'customer' });
+
+  it('answers "under Rs.500" from the live catalog without a misleading not-found', async () => {
+    const u = await mk('prunder@x.com');
+    await createProduct({ name: 'Budget Widget', price: 300, stock: 4 });
+    await createProduct({ name: 'Pricey Gadget', price: 900, stock: 4 });
+    await chat(u._id.toString(), 'Which products are under Rs.500?', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('PRODUCTS UNDER Rs.500');
+    expect(prompt).toContain('Budget Widget');
+    expect(prompt).not.toContain('Pricey Gadget');
+    expect(prompt).not.toContain('no active product matched');
+  });
+
+  it('answers "above 5000" from the live catalog', async () => {
+    const u = await mk('prabove@x.com');
+    await createProduct({ name: 'Budget Widget', price: 300, stock: 4 });
+    await createProduct({ name: 'Luxury Item', price: 9000, stock: 2 });
+    await chat(u._id.toString(), 'show me products above 5000', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('PRODUCTS ABOVE Rs.5000');
+    expect(prompt).toContain('Luxury Item');
+    expect(prompt).not.toContain('Budget Widget');
+    expect(prompt).not.toContain('no active product matched');
+  });
+
+  it('states plainly when no product falls in the price range', async () => {
+    const u = await mk('prempty@x.com');
+    await createProduct({ name: 'Budget Widget', price: 300, stock: 4 });
+    await chat(u._id.toString(), 'anything under 50?', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('No active products are currently priced under Rs.50');
+    expect(prompt).not.toContain('no active product matched');
   });
 });

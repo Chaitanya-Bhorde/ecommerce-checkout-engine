@@ -16,6 +16,7 @@ export default function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [aiInfo, setAiInfo] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const { user } = useAuth();
@@ -27,6 +28,14 @@ export default function Chat() {
       loadConversations();
     }
   }, [user]);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/ai/config')
+      .then((r) => { if (active) setAiInfo(r.data); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // Save current conversation ID to localStorage whenever it changes
   useEffect(() => {
@@ -339,7 +348,7 @@ export default function Chat() {
               <span className="chat-page-avatar">🤖</span>
               <div>
                 <h1>AI Assistant</h1>
-                <p>Online • Powered by Llama 3</p>
+                <p>Online{aiInfo && aiInfo.model ? ` • Powered by ${aiInfo.model}` : ''}</p>
               </div>
             </div>
             <button 

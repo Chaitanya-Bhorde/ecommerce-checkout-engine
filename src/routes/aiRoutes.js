@@ -47,6 +47,15 @@ const upload = multer({
 // @route   POST /api/ai/chat
 // @desc    Send message to AI chatbot
 // @access  Private
+router.get('/config', (req, res) => {
+  const { AI_PROVIDER, GROQ_MODEL } = require('../services/ai/llmConfig');
+  let model = null;
+  if (AI_PROVIDER === 'groq') model = GROQ_MODEL;
+  else if (AI_PROVIDER === 'openai') model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
+  else if (AI_PROVIDER === 'ollama') model = process.env.OLLAMA_MODEL || 'llama3.2';
+  res.json({ provider: AI_PROVIDER, model });
+});
+
 router.post('/chat', protect, async (req, res) => {
   try {
     const { message, conversationId } = req.body;

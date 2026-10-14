@@ -68,6 +68,17 @@ async function analyzeIntent(state) {
     generalChat: ['hello', 'hi', 'hey', 'help', 'support'],
   };
 
+  // Guard: user-directory / analytics questions must never be treated as
+  // catalog searches or order actions. "Show me all users" contains
+  // "show me", but it is a user-directory question, not a product question.
+  // The guard only fires when the message carries no product/order signal.
+  const mentionsPeopleOrAnalytics = /\busers?\b|\bcustomers?\b|\bdashboard\b|\brevenue\b|\banalytic|\bstatistic|\bpopular products\b/.test(lastMessage);
+  const mentionsOrderAction = /\border\b|\bcancel\b|\breturn\b|\brefund\b|\btrack\b|\baddress\b|\bdiscount\b|\bcoupon\b|\bpromo\b/.test(lastMessage);
+  const mentionsProduct = /\bprice\b|\bcost\b|\bstock\b|\bavailab|\bcategor|\brecommend\b|\bsuggest\b|\blooking for\b|\bcheap\b|\bexpensive\b|\bbudget\b|\bpremium\b|\bproduct\b/.test(lastMessage);
+  if (mentionsPeopleOrAnalytics && !mentionsOrderAction && !mentionsProduct) {
+    return 'generalChat';
+  }
+
   for (const [intent, patterns] of Object.entries(intents)) {
     if (patterns.some((pattern) => lastMessage.includes(pattern))) {
       return intent;

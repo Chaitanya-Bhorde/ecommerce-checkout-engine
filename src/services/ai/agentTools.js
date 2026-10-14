@@ -222,7 +222,8 @@ const PRODUCT_TERM_STOPWORDS = new Set([
   'want', 'check', 'know', 'cheapest', 'expensive', 'least', 'lowest', 'highest',
   'premium', 'budget', 'looking', 'recommend', 'recommendation', 'suggest',
   'total', 'orders', 'users', 'customers', 'store', 'sales', 'does', 'our',
-  'hello', 'hey', 'thanks', 'thank', 'yes', 'yeah', 'ok', 'okay', 'bye',
+  'hello', 'hey', 'hi', 'yo', 'sup', 'howdy', 'hiya', 'heya', 'hola', 'namaste',
+  'greetings', 'there', 'thanks', 'thank', 'yes', 'yeah', 'ok', 'okay', 'bye',
   'goodbye', 'help', 'support', 'morning', 'evening', 'welcome', 'sell',
   'selling', 'carry', 'got', 'offer', 'offers',
 ]);

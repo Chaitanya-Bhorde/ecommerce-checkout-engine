@@ -1,13 +1,9 @@
-// AI Configuration - Multiple provider support
-// Uses DIRECT fetch() for maximum reliability (no SDK dependency issues)
-
 const { ChatOllama } = require("@langchain/ollama");
 
-// Check which AI provider to use
 const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || '25000', 10);
-const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS || '400', 10);
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || '8000', 10);
+const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS || '300', 10);
 
 function debugLog(...args) {
   if (process.env.DEBUG_AI === 'true') console.log(...args);
@@ -61,7 +57,7 @@ async function callGroq(messages, maxTokens = AI_MAX_TOKENS, temperature = 0.7, 
             const json = JSON.parse(payload);
             const token = json.choices?.[0]?.delta?.content;
             if (token) { full += token; onToken(token); }
-          } catch (_) { /* partial */ }
+          } catch (_) {}
         }
       }
     } finally { reader.releaseLock(); }
@@ -71,17 +67,31 @@ async function callGroq(messages, maxTokens = AI_MAX_TOKENS, temperature = 0.7, 
   return data.choices[0].message.content;
 }
 
-/**
- * Call the AI LLM directly with messages
- * @param {Array} messages - Array of {role, content} message objects
- * @param {Object} options - Optional overrides (e.g. { maxTokens: 1000, temperature: 0.3 })
- */
+async function callOllama(messages, maxTokens = AI_MAX_TOKENS, temperature = 0.7, timeout = AI_TIMEOUT_MS) {
+  const ollamaLLM = new ChatOllama({
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    model: process.env.OLLAMA_MODEL || 'llama3.2',
+    temperature: temperature,
+    maxTokens: maxTokens,
+    timeout: timeout,
+  });
+  const invokePromise = ollamaLLM.invoke(messages);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Ollama request timed out after ' + timeout + 'ms.')), timeout)
+  );
+  const response = await Promise.race([invokePromise, timeoutPromise]);
+  return response.content;
+}
+
 async function callLLM(messages, options = {}) {
   const maxTokens = options.maxTokens || AI_MAX_TOKENS;
   const temperature = options.temperature ?? 0.7;
   const timeout = options.timeout || AI_TIMEOUT_MS;
   const stream = options.stream || false;
   const onToken = options.onToken || null;
+  if (AI_PROVIDER === 'ollama') {
+    return callOllama(messages, maxTokens, temperature, timeout);
+  }
   if (AI_PROVIDER === 'groq') {
     let lastError = null;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -120,22 +130,9 @@ async function callLLM(messages, options = {}) {
       const data = await response.json();
       return data.choices[0].message.content;
   }
-  const ollamaLLM = new ChatOllama({
-    baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-    model: process.env.OLLAMA_MODEL || "llama3",
-    temperature: temperature,
-    maxTokens: maxTokens,
-    timeout: timeout,
-  });
-  const invokePromise = ollamaLLM.invoke(messages);
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Ollama request timed out after ${timeout}ms.`)), timeout)
-  );
-  const response = await Promise.race([invokePromise, timeoutPromise]);
-  return response.content;
+  return callOllama(messages, maxTokens, temperature, timeout);
 }
 
-// LLM Configuration for different use cases
 const llmConfigs = {
   support: {
     temperature: 0.7,
@@ -154,7 +151,6 @@ const llmConfigs = {
   },
 };
 
-// Legacy support for backward compatibility
 const llm = {
   invoke: async (messages, options = {}) => {
     debugLog(`[LLM] Invoking ${AI_PROVIDER}...`);
