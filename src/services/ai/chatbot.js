@@ -6,6 +6,7 @@ const { llm, getLLM, AI_PROVIDER, callLLM } = require('./llmConfig');
 const vectorStore = require('./vectorStore');
 const { runAgent } = require('./agentWorkflow');
 const { searchProducts: searchCatalogProducts } = require('./agentTools');
+const { executeChatTool, TOOL_DEFINITIONS, TOOL_HANDLERS } = require('./chatTools');
 const { getAllDocuments } = require('./knowledgeBase');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
@@ -22,56 +23,51 @@ function debugLog(...args) {
 }
 
 async function getUserOrders(userId, limit = 5) {
-  try {
-    if (!userId || !/^[0-9a-fA-F]{24}$/.test(String(userId))) return [];
-    const lim = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 20);
-    const orders = await Order.find({ user: userId })
-      .sort({ createdAt: -1 })
-      .limit(lim)
-      .select('_id total status createdAt items deliveryProgress')
-      .populate('items.product', 'name price category')
-      .lean();
-    
-    // Map orders with detailed item information including categories
-    return orders.map(order => ({
-      id: order._id, 
-      total: order.total, 
-      status: order.status,
-      progress: order.deliveryProgress, 
-      date: order.createdAt, 
-      items: order.items.length,
-      itemDetails: order.items.map(item => ({
-        name: item.product?.name || 'Unknown Product',
-        price: item.price,
-        quantity: item.quantity,
-        category: item.product?.category?.name || 'General',
-      }))
-    }));
-  } catch (error) {
-    console.error('Error fetching user orders:', error);
-    return [];
-  }
+  if (!userId || !/^[0-9a-fA-F]{24}$/.test(String(userId))) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 20);
+  // Errors propagate on purpose: callers must be able to distinguish a failed
+  // query from a genuinely empty result ("no orders" must never be fabricated
+  // out of a database failure).
+  const orders = await Order.find({ user: userId })
+    .sort({ createdAt: -1 })
+    .limit(lim)
+    .select('_id total status createdAt items deliveryProgress')
+    .populate('items.product', 'name price category')
+    .lean();
+
+  // Map orders with detailed item information including categories
+  return orders.map(order => ({
+    id: order._id,
+    total: order.total,
+    status: order.status,
+    progress: order.deliveryProgress,
+    date: order.createdAt,
+    items: order.items.length,
+    itemDetails: order.items.map(item => ({
+      name: item.product?.name || 'Unknown Product',
+      price: item.price,
+      quantity: item.quantity,
+      category: item.product?.category?.name || 'General',
+    }))
+  }));
 }
 
 async function getLatestUser(limit = 5) {
-  try {
-    const users = await User.find()
-      .sort({ createdAt: -1 })
-      .limit(Math.min(Math.max(parseInt(limit, 10) || 5, 1), 20))
-      .select('_id name email role createdAt')
-      .lean();
+  // Errors propagate on purpose: a failed query must never be reported as
+  // "no registered users found".
+  const users = await User.find()
+    .sort({ createdAt: -1 })
+    .limit(Math.min(Math.max(parseInt(limit, 10) || 5, 1), 20))
+    .select('_id name email role createdAt')
+    .lean();
 
-    return users.map((u) => ({
-      id: u._id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      registeredAt: u.createdAt,
-    }));
-  } catch (error) {
-    console.error('Error fetching latest users:', error);
-    return [];
-  }
+  return users.map((u) => ({
+    id: u._id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    registeredAt: u.createdAt,
+  }));
 }
 
 async function getLatestOrders(userId = null, limit = 5) {
@@ -255,12 +251,12 @@ function classifyIntent(message, historyTexts = []) {
   }
   // Bare catalog-style queries ("wallpaper", "wall paper", "red shoes") carry
   // no other intent signal. Treat short noun phrases as low-confidence product
-  // lookups so they get a real DB search instead of a generic fallback.
-  // Greetings are already returned above, and order/policy/admin branches take
-  // precedence, so this only catches otherwise-unclaimed phrases. Generic
-  // chit-chat words and pure stopword phrases are excluded so they stay
-  // general (the extractor returns null for them).
-  if (t.length <= 40) {
+  // lookups so they get a real DB search instead of a generic fallback. This is
+  // only the deterministic fallback (the LLM tool planner is the primary router);
+  // it is guarded against courtesy/social phrases so chit-chat like "thanks, have
+  // a great day!" is never misrouted into a product search.
+  const SOCIAL_CHITCHAT = /(\bthanks?\b|\bthank you\b|\bthx\b|\bappreciate\b|\byou'?re welcome\b|\bno worries\b|\bmy pleasure\b|\bbye\b|\bgoodbye\b|\bgood ?night\b|\bsee you\b|\btake care\b|\btalk (later|soon)\b|\bhave a (good|great|nice|wonderful|lovely|awesome)\b|\b(great|good|nice|lovely|wonderful) day\b|\bsame to you\b|\byou too\b)/i;
+  if (t.length <= 40 && !SOCIAL_CHITCHAT.test(raw)) {
     try {
       const { extractProductTerm } = require('./agentTools');
       if (extractProductTerm(raw)) {
@@ -335,7 +331,9 @@ async function getDatabaseStats() {
     };
   } catch (error) {
     console.error('Error fetching stats:', error);
-    return { totalOrders: 0, totalProducts: 0, totalUsers: 0, cancelledOrders: 0, deliveredOrders: 0, pendingOrders: 0, statusBreakdown: {} };
+    // Return null (not zeros) so callers can distinguish a failed query from
+    // an empty store; zeros here would be reported as fabricated "0 users".
+    return null;
   }
 }
 
@@ -427,6 +425,259 @@ async function getCategoryAnalytics() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// LLM tool planner (reusable, tool-driven reasoning layer)
+//
+// Instead of hardcoding a keyword rule per question, the model first decides
+// WHICH backend operation(s) a message needs and returns a compact JSON plan.
+// Those tools run real, authorized database queries (chatTools.js enforces
+// ownership + admin checks server-side). The answer is then grounded in the
+// live results. If the planner decides no live data is needed (greetings,
+// chit-chat, general knowledge) it returns {"calls":[]} and we fall back to the
+// deterministic keyword grounding below, preserving existing behaviour.
+// ---------------------------------------------------------------------------
+
+const PLANNER_SYSTEM_PREFIX = 'Route a shopping-assistant request';
+
+function buildPlannerPrompt(userName, userRole) {
+  const toolList = TOOL_DEFINITIONS.map(
+    (t) => `- ${t.name}(${Object.keys(t.args).join(', ') || 'no args'}): ${t.description}`
+  ).join('\n');
+  return `${PLANNER_SYSTEM_PREFIX} to the right backend tool(s), or decide none are needed.
+
+You are the tool planner for an e-commerce shopping assistant. Read the user's message (and the recent conversation for follow-ups) and choose which backend tool(s) must run to answer factually.
+
+User: ${userName} (role: ${userRole}). Only choose admin tools (get_store_analytics, list_users, get_user_orders) when role is admin; the backend still enforces this regardless.
+
+Available tools:
+${toolList}
+
+Rules:
+- Return ONLY compact JSON, no prose and no code fences: {"calls":[{"tool":"<name>","args":{...}}]}
+- Use {"calls":[]} for greetings, chit-chat, general/technical knowledge, or anything that needs no live application data.
+- Resolve follow-ups ("the latest one", "that order", "its price", "how many were delivered") using the conversation. For a single-order follow-up prefer get_order_status with no orderId (it resolves to the latest order).
+- "that user" / "the latest user" / "the new user" means the most recent USER discussed in the conversation: for admins, call get_user_orders with that user's name from the conversation.
+- When a tool needs an argument the conversation already contains (a user's name, a product name), copy it into args; never send empty strings or null.
+- If a customer asks about ANOTHER user's private data, still call the relevant tool with that name; the backend enforces access and returns a refusal the assistant must relay.
+- For exact counts or store totals use get_store_analytics; list_users returns only a limited list of users.
+- Choose tools by MEANING, not exact words; handle paraphrases ("where is my package" -> get_my_orders).
+- For admins, "the latest/recent orders" (store-wide) means get_store_analytics; get_my_orders is only for the user's OWN orders.
+- Never invent tool names or args. Keep at most 3 calls.`;
+}
+
+function parseToolPlan(text) {
+  try {
+    const cleaned = String(text || '').replace(/```json|```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return { calls: [] };
+    const parsed = JSON.parse(match[0]);
+    const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
+    const valid = calls
+      .filter((c) => c && typeof c.tool === 'string' && TOOL_HANDLERS[c.tool])
+      .slice(0, 3)
+      .map((c) => ({ tool: c.tool, args: c.args && typeof c.args === 'object' ? c.args : {} }));
+    return { calls: valid };
+  } catch (_) {
+    return { calls: [] };
+  }
+}
+
+async function planToolCalls(message, history, userName, userRole) {
+  const system = buildPlannerPrompt(userName, userRole);
+  const recent = history
+    .slice(-6)
+    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 300) }));
+  const res = await llm.invoke(
+    [{ role: 'system', content: system }, ...recent, { role: 'user', content: message }],
+    // Reasoning models (gpt-oss) spend tokens on hidden reasoning before the
+    // final JSON; a 200-token budget sometimes left the content EMPTY, which
+    // silently degraded routing to the legacy keyword fallback. Routing must
+    // also be deterministic (temperature 0), or the same question randomly
+    // plans no tools run-to-run.
+    { maxTokens: 1024, timeout: 8000, temperature: 0 }
+  );
+  return parseToolPlan(res && res.content);
+}
+
+async function runPlannedTools(calls, auth, message) {
+  const results = [];
+  const seen = new Set();
+  for (const call of calls.slice(0, 3)) {
+    let tool = call.tool;
+    const args = { ...(call.args || {}) };
+    // Verified defect guard: with several order-heavy turns in history the
+    // planner occasionally routes an admin's store-wide "latest/recent orders"
+    // question to get_my_orders (the admin's own, usually empty list), which was
+    // then reported as "no orders in the system" despite real store orders.
+    // Upgrade exactly that case to the store-wide tool. Authorization-neutral:
+    // both tools are admin-safe here, and a customer's get_my_orders is untouched.
+    if (
+      tool === 'get_my_orders' &&
+      auth && auth.userRole === 'admin' &&
+      /\b(latest|recent|newest|last)\b/i.test(String(message || '')) &&
+      /\borders?\b/i.test(String(message || '')) &&
+      !/\b(my|mine|our|ours)\b/i.test(String(message || ''))
+    ) {
+      tool = 'get_store_analytics';
+    }
+    const key = `${tool}:${JSON.stringify(args)}`;
+    if (seen.has(key)) continue; // prevent duplicate identical tool calls
+    seen.add(key);
+    // Free-text tools default their query/topic to the user's message when the
+    // planner omits it, so paraphrases still reach the catalog/help search.
+    if (tool === 'search_products' && !args.query) args.query = message;
+    if (tool === 'get_app_help' && !args.topic) args.topic = message;
+    const result = await executeChatTool(tool, args, auth);
+    results.push({ tool, args, result });
+  }
+  return results;
+}
+
+
+// Convert executed tool results into grounding text for the answer prompt.
+// Tool output is treated strictly as data, never as instructions.
+function formatToolResults(results) {
+  let out = '';
+  for (const { tool, result } of results) {
+    if (!result || result.ok === false) {
+      const err = result && result.error;
+      if (err === 'FORBIDDEN') {
+        out += `\nACCESS DENIED: that information is restricted to administrators. Politely refuse and offer to help with the user's own orders, cart, wishlist, or product questions instead. Do not reveal any data.`;
+      } else if (err === 'ORDER_NOT_FOUND') {
+        out += `\nORDER: no such order was found for this user. Say you could not find that order.`;
+      } else if (err === 'USER_NOT_FOUND') {
+        out += `\nNo customer matched that name or id. Ask the user to clarify which customer they mean. Do not invent a customer.`;
+      } else if (err === 'NO_ORDERS') {
+        out += `\nNOTE: this user has no orders yet. Say so plainly.`;
+      } else if (err === 'TOOL_FAILED') {
+        out += `\nSERVICE UNAVAILABLE: a live lookup failed just now. Tell the user you could not retrieve that right now and to try again shortly. Do not invent any data.`;
+      } else {
+        out += `\nNo data available for ${tool}. Say so plainly rather than guessing.`;
+      }
+      continue;
+    }
+    switch (tool) {
+      case 'get_my_orders': {
+        const orders = result.orders || [];
+        if (!orders.length) { out += `\nNOTE: this user has no orders yet. Say so plainly.`; break; }
+        out += `\nYOUR ORDERS (newest first):`;
+        orders.slice(0, 5).forEach((o) => {
+          out += `\n#${String(o.id).slice(-8)} Rs.${o.total} ${o.status} (${o.itemCount} items, ${o.date ? new Date(o.date).toLocaleDateString() : 'unknown date'})`;
+        });
+        break;
+      }
+      case 'get_order_status': {
+        const o = result.order;
+        out += `\nORDER #${String(o.id).slice(-8)}: status ${o.status}, total Rs.${o.total}, placed ${o.date ? new Date(o.date).toLocaleDateString() : 'unknown date'}.`;
+        break;
+      }
+      case 'search_products': {
+        const products = result.products || [];
+        if (!products.length) {
+          out += `\nPRODUCT SEARCH: no active product matched "${result.query || ''}". Say you could not find that product in the catalog and suggest rephrasing or browsing the Products page. Never invent a product or price.`;
+          break;
+        }
+        if (products.length === 1) {
+          const m = products[0];
+          out += `\nPRODUCT MATCH: ${m.name} - price Rs.${m.price}, stock ${m.stock} units, category ${m.category}, id ${m.id}. Answer the user's question using exactly these facts.`;
+        } else {
+          out += `\nPRODUCT MATCHES (${products.length}):`;
+          products.slice(0, 5).forEach((m) => { out += `\n${m.name} - Rs.${m.price} (stock ${m.stock}, ${m.category})`; });
+          out += `\nMultiple products match. List these options with prices and ask which one the user means. Do not invent.`;
+        }
+        break;
+      }
+      case 'get_products_by_price': {
+        const products = result.products || [];
+        if (!products.length) { out += `\nNo active products match that price range. Say so plainly and suggest browsing the Products page.`; break; }
+        out += `\nPRODUCTS IN PRICE RANGE (use exactly these):`;
+        products.slice(0, 8).forEach((p) => { out += `\n${p.name} - Rs.${p.price} (${p.category}, ${p.stock} in stock)`; });
+        break;
+      }
+      case 'get_my_cart': {
+        if (result.empty) { out += `\nCART: empty.`; break; }
+        out += `\nCART: ${result.items.length} lines, total Rs.${result.total}.`;
+        result.items.slice(0, 5).forEach((it) => { out += `\n${it.name} x${it.quantity} Rs.${it.price}`; });
+        break;
+      }
+      case 'get_my_wishlist': {
+        if (result.empty) { out += `\nWISHLIST: empty.`; break; }
+        out += `\nWISHLIST (${result.items.length}):`;
+        result.items.slice(0, 5).forEach((it) => { out += `\n${it.name} Rs.${it.price == null ? '' : it.price}`; });
+        break;
+      }
+      case 'get_my_account': {
+        const a = result.account;
+        out += `\nACCOUNT: ${a.name} <${a.email}> role=${a.role}, member since ${a.memberSince ? new Date(a.memberSince).toLocaleDateString() : 'unknown'}.`;
+        break;
+      }
+      case 'get_my_notifications': {
+        const n = result.notifications || [];
+        if (!n.length) { out += `\nNOTIFICATIONS: none.`; break; }
+        out += `\nNOTIFICATIONS (${n.length} recent):`;
+        n.slice(0, 3).forEach((x) => { out += `\n${x.title}: ${String(x.message).slice(0, 120)}`; });
+        break;
+      }
+      case 'get_store_analytics': {
+        const a = result.analytics;
+        out += `\nSTATS: orders=${a.totalOrders} products=${a.totalProducts} users=${a.totalUsers} revenue=Rs.${a.revenue}`;
+        if (a.recentOrders && a.recentOrders.length) {
+          out += `\nRECENT ORDERS:`;
+          a.recentOrders.slice(0, 5).forEach((o) => { out += `\n#${String(o.id).slice(-8)} Rs.${o.total} ${o.status}`; });
+        }
+        break;
+      }
+      case 'get_user_orders': {
+        if (result.ambiguous) {
+          out += `\nSeveral users match that name. Ask which one: ${(result.users || []).map((u) => `${u.name} <${u.email}>`).join('; ')}. Do not guess.`;
+          break;
+        }
+        const u = result.user;
+        const orders = result.orders || [];
+        if (!orders.length) { out += `\nNOTE: ${u.name} has no orders yet. Say so plainly.`; break; }
+        out += `\nORDERS FOR ${u.name} <${u.email}> (newest first):`;
+        orders.slice(0, 5).forEach((o) => {
+          const prods = (o.products || []).map((p) => `${p.name} x${p.quantity} (Rs.${p.price})`).join(', ');
+          out += `\n#${String(o.id).slice(-8)} Rs.${o.total} ${o.status} (${o.date ? new Date(o.date).toLocaleDateString() : 'unknown date'}): ${prods || 'no items'}`;
+        });
+        break;
+      }
+      case 'list_users': {
+        const users = result.users || [];
+        if (!users.length) { out += `\nNo registered users were found in the database. Say so plainly.`; break; }
+        out += `\nREGISTERED USERS (newest first; names and signup dates only, never credentials):`;
+        users.slice(0, 5).forEach((u) => {
+          out += `\n${u.name} <${u.email}> role=${u.role} joined ${u.registeredAt ? new Date(u.registeredAt).toLocaleDateString() : 'unknown date'}`;
+        });
+        break;
+      }
+      case 'get_app_help': {
+        const arts = result.articles || [];
+        if (!arts.length) { out += `\nNo help article matched. Answer generally about the app or ask a clarifying question. Do not claim an unavailable feature.`; break; }
+        out += `\nHELP ARTICLES:`;
+        arts.forEach((d) => { out += `\n${String(d.content).slice(0, 400)}`; });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+
+// A client-supplied conversation id is only honored when the conversation
+// exists AND belongs to the authenticated user. This prevents reading another
+// user's chat history into the model context or appending messages to it.
+async function resolveOwnedConversationId(conversationId, userId) {
+  const id = String(conversationId || '');
+  if (!/^[0-9a-fA-F]{24}$/.test(id)) return null;
+  const owned = await Conversation.findOne({ _id: id, userId: String(userId) })
+    .select('_id')
+    .lean();
+  return owned ? id : null;
+}
+
 async function chat(userId, message, context = {}, conversationId = null) {
   const userName = context.userName || 'Customer';
   const userEmail = context.userEmail || '';
@@ -439,7 +690,7 @@ async function chat(userId, message, context = {}, conversationId = null) {
   let currentConversationId;
 
   try {
-    currentConversationId = conversationId;
+    currentConversationId = await resolveOwnedConversationId(conversationId, normalizedUserId);
     if (!currentConversationId) {
       // Create new conversation with auto-generated title
       const title = message.substring(0, 40) + (message.length > 40 ? '...' : '');
@@ -460,6 +711,27 @@ async function chat(userId, message, context = {}, conversationId = null) {
     }));
     const historyTexts = history.map((msg) => String(msg.content || ''));
 
+    // ---- LLM tool planner (primary reasoning layer) ----
+    // The model first decides which backend operation(s) this message needs and
+    // returns a compact JSON plan. Planned tools run real, authorized DB queries
+    // and ground the answer. When no live data is needed the planner returns an
+    // empty plan and we fall back to the deterministic keyword grounding below,
+    // preserving existing behaviour. A planner failure also falls back safely.
+    let toolPlan = { calls: [] };
+    try {
+      toolPlan = await planToolCalls(message, history, userName, userRole);
+    } catch (planErr) {
+      if (process.env.DEBUG_AI === 'true') console.error('[Chatbot] planner failed:', planErr.message);
+      toolPlan = { calls: [] };
+    }
+
+    let systemPrompt;
+    if (toolPlan.calls.length > 0) {
+      // Tool-driven path: execute real authorized queries and ground the answer.
+      const plannedResults = await runPlannedTools(toolPlan.calls, { userId: normalizedUserId, userRole }, message);
+      const toolData = formatToolResults(plannedResults);
+      systemPrompt = `You are ShopEase's helpful in-store assistant. Talking to ${userName} (${userRole}). Be concise and conversational (under 80 words). Use ONLY the LIVE DATA below, which comes from real backend queries for this exact user. Never invent prices, orders, statuses, users, or statistics. If a section says data is unavailable, empty, or access is denied, say so plainly and do not fabricate anything. Never reveal passwords, tokens, or payment secrets.${toolData}`;
+    } else {
     let classified = classifyIntent(message, historyTexts);
     if (classified.kind === 'general' && isFollowUpMessage(message)) {
       for (const prior of historyTexts.filter((_, i) => history[i].role === 'user').slice(-3).reverse()) {
@@ -506,7 +778,7 @@ async function chat(userId, message, context = {}, conversationId = null) {
         getCategoryAnalytics(),
         Order.find({}).populate('user', 'name email').sort({ createdAt: -1 }).limit(10).select('_id total status createdAt items user').lean(),
       ]);
-      if (classified.kind === 'admin_users') tasks.latestUsers = getLatestUser(5).catch(() => []);
+      if (classified.kind === 'admin_users') tasks.latestUsers = getLatestUser(5);
     } else {
       tasks.admin = Promise.resolve(null);
     }
@@ -579,7 +851,7 @@ async function chat(userId, message, context = {}, conversationId = null) {
       userOrders = ordersData || [];
     }
 
-    let systemPrompt = `You are ShopEase's helpful in-store assistant. Talking to ${userName} (${userRole}). Be concise and conversational (under 80 words). Never invent prices, orders, or statuses. Answer general questions (greetings, tech explanations, what you can do, what this app does) from your own knowledge; use the LIVE DATA sections below only when they are present and relevant. If a LIVE DATA section is missing or empty, say you do not have that information rather than inventing it. Never reveal passwords, tokens, or payment secrets; user data below is already scoped to what this user may see.`;
+    systemPrompt = `You are ShopEase's helpful in-store assistant. Talking to ${userName} (${userRole}). Be concise and conversational (under 80 words). Never invent prices, orders, or statuses. Answer general questions (greetings, tech explanations, what you can do, what this app does) from your own knowledge; use the LIVE DATA sections below only when they are present and relevant. If a LIVE DATA section is missing or empty, say you do not have that information rather than inventing it. Never reveal passwords, tokens, or payment secrets; user data below is already scoped to what this user may see.`;
     if (classified.kind === 'greeting') {
       systemPrompt += `\nThe user greeted you. Reply with a short, warm greeting using their name and offer to help with products, orders, or anything else. A prior product may be listed below only as follow-up context; mention it only if it fits naturally, otherwise just greet. Do not list statistics, products, or prices unless asked.`;
     }
@@ -700,6 +972,7 @@ async function chat(userId, message, context = {}, conversationId = null) {
       systemPrompt += `\nNOTE: this user has no orders yet. Say so plainly.`;
     }
     if (systemPrompt.length > 3500) systemPrompt = systemPrompt.slice(0, 3500);
+    }
 
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -772,12 +1045,14 @@ async function chat(userId, message, context = {}, conversationId = null) {
     try {
       if (userRole === 'admin') {
         const stats = await getDatabaseStats();
-        return {
-          response: `Hi ${userName}! My AI service is briefly unavailable. We currently have ${stats.totalOrders} orders and ${stats.totalProducts} products. Please try again shortly.`,
-          conversationId: currentConversationId ? currentConversationId.toString() : null,
-          escalate: false,
-          ticketId: null,
-        };
+        if (stats) {
+          return {
+            response: `Hi ${userName}! My AI service is briefly unavailable. We currently have ${stats.totalOrders} orders and ${stats.totalProducts} products. Please try again shortly.`,
+            conversationId: currentConversationId ? currentConversationId.toString() : null,
+            escalate: false,
+            ticketId: null,
+          };
+        }
       }
       return {
         response: `Hi ${userName}! My AI service is briefly unavailable. Please try again shortly.`,
@@ -918,6 +1193,7 @@ module.exports = {
   shouldEscalateToHuman,
   getSuggestedReplies,
   getUserOrders,
+  resolveOwnedConversationId,
   getProductRecommendations,
   detectIntent,
   classifyIntent,

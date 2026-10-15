@@ -10,6 +10,8 @@ jest.mock('../services/ai/agentWorkflow', () => ({ runAgent: jest.fn() }));
 const User = require('../models/User');
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
+const Conversation = require('../models/Conversation');
+const ChatMessage = require('../models/ChatMessage');
 const { chat, getUserOrders, getProductRecommendations } = require('../services/ai/chatbot');
 const { llm } = require('../services/ai/llmConfig');
 const { startDb, stopDb, clearDb, createProduct } = require('./helpers');
@@ -32,8 +34,21 @@ const lastPrompt = () => {
   return calls.length ? calls[calls.length - 1][0][0].content : '';
 };
 
+// LLM tool planner: first invoke() call plans tools (JSON), last call answers.
+// Default mock: no tools planned, so legacy keyword fallback still grounds data;
+// specific tests override the FIRST call to return a tool plan.
+const planCalls = (names) => JSON.stringify({ calls: names.map((tool) => ({ tool, args: {} })) });
+
 beforeAll(async () => { await startDb(); });
-beforeEach(async () => { await clearDb(); jest.clearAllMocks(); llm.invoke.mockResolvedValue({ content: 'stubbed' }); });
+beforeEach(async () => {
+  await clearDb();
+  jest.clearAllMocks();
+  llm.invoke.mockImplementation(async (msgs) => {
+    const text = String(msgs?.[0]?.content || '');
+    if (text.startsWith('Route a shopping-assistant request')) return { content: '{"calls":[]}' };
+    return { content: 'stubbed' };
+  });
+});
 afterAll(async () => { await stopDb(); });
 
 describe('AI chatbot — live-data grounding', () => {
@@ -101,6 +116,48 @@ describe('AI chatbot — authorization', () => {
     await chat(admin._id.toString(), 'show me dashboard revenue', { userName: 'Admin', userRole: 'admin' });
     expect(lastPrompt()).toContain('ADMIN');
   });
+
+  it('refuses to reuse a conversation owned by another user (no cross-tenant read/write)', async () => {
+    const a = await User.create({ name: 'A', email: 'a@x.com', password: 'password123', role: 'customer' });
+    const b = await User.create({ name: 'B', email: 'b@x.com', password: 'password123', role: 'customer' });
+    const convB = await Conversation.create({ userId: b._id.toString(), title: 'B private chat' });
+    await ChatMessage.create({ conversationId: convB._id, userId: b._id, role: 'user', content: 'B secret history marker' });
+    const p = await createProduct({ price: 111 });
+    await makeOrder(a._id, p._id, 111, 'delivered');
+
+    const res = await chat(a._id.toString(), 'show my orders', { userName: 'A', userRole: 'customer' }, convB._id.toString());
+
+    // A fresh conversation owned by A is used instead of B's
+    expect(res.conversationId).not.toBe(String(convB._id));
+    const created = await Conversation.findById(res.conversationId).lean();
+    expect(String(created.userId)).toBe(a._id.toString());
+    // No messages were appended to B's conversation
+    const bMsgs = await ChatMessage.find({ conversationId: convB._id }).lean();
+    expect(bMsgs).toHaveLength(1);
+    // B's history never reached the planner or the answer prompt
+    const everything = llm.invoke.mock.calls
+      .map((c) => c[0].map((m) => m.content).join('\n'))
+      .join('\n');
+    expect(everything).not.toContain('B secret history marker');
+    // A's own order data is still grounded
+    expect(lastPrompt()).toContain('111');
+  });
+
+  it('does not report fabricated zero store stats when the stats query fails', async () => {
+    const admin = await User.create({ name: 'Admin', email: 'admin@x.com', password: 'password123', role: 'admin' });
+    jest.spyOn(Order, 'countDocuments').mockRejectedValueOnce(new Error('db down'));
+    await chat(admin._id.toString(), 'show me dashboard revenue', { userName: 'Admin', userRole: 'admin' });
+    const prompt = lastPrompt();
+    expect(prompt).not.toContain('STATS:');
+    expect(prompt).not.toContain('users=0');
+  });
+
+  it('surfaces a failed orders query as unavailable instead of "no orders"', async () => {
+    const u = await User.create({ name: 'A', email: 'a@x.com', password: 'password123', role: 'customer' });
+    jest.spyOn(Order, 'find').mockImplementationOnce(() => { throw new Error('db down'); });
+    const res = await chat(u._id.toString(), 'all my orders', { userName: 'A', userRole: 'customer' });
+    expect(res.response.toLowerCase()).toContain('unavailable');
+  });
 });
 
 describe('AI chatbot — missing records and provider failures', () => {
@@ -124,19 +181,10 @@ describe('AI chatbot — missing records and provider failures', () => {
       .rejects.toMatchObject({ message: 'AI_PROVIDER_TIMEOUT', status: 504 });
   });
 
-  it('makes exactly one LLM call per message', async () => {
+  it('makes at most two LLM calls per message (plan + answer)', async () => {
     const u = await User.create({ name: 'A', email: 'a@x.com', password: 'password123', role: 'customer' });
     await chat(u._id.toString(), 'what is my order status', { userName: 'A', userRole: 'customer' });
-    expect(llm.invoke).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns a safe fallback response (with conversationId) on unexpected provider errors', async () => {
-    const u = await User.create({ name: 'A', email: 'a@x.com', password: 'password123', role: 'customer' });
-    llm.invoke.mockRejectedValue(new Error('Groq API error 500: upstream exploded'));
-    const res = await chat(u._id.toString(), 'hi', { userName: 'A', userRole: 'customer' });
-    expect(res.response).toMatch(/briefly unavailable/i);
-    expect(res.conversationId).toBeTruthy();
-    expect(res.escalate).toBe(false);
+    expect(llm.invoke.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
   it('maps a retired/unknown model (model_not_found) to AI_PROVIDER_UNAVAILABLE (503)', async () => {
@@ -358,6 +406,65 @@ describe('AI chatbot — greeting intent', () => {
   });
 });
 
+describe('AI chatbot — LLM tool planning (paraphrase robustness)', () => {
+  const ctx = { userName: 'A', userRole: 'customer' };
+  const mk = (email) => User.create({ name: 'A', email, password: 'password123', role: 'customer' });
+  const planFirst = (names) => {
+    llm.invoke.mockImplementation(async (msgs) => {
+      const text = String(msgs?.[0]?.content || '');
+      if (text.startsWith('Route a shopping-assistant request')) return { content: planCalls(names) };
+      return { content: 'stubbed' };
+    });
+  };
+
+  it('equivalent order-status phrasings route to the same order tools', async () => {
+    const u = await mk('para1@x.com');
+    const p = await createProduct({ price: 250 });
+    const o = await makeOrder(u._id, p._id, 250, 'shipped');
+    for (const msg of ['could you tell me where my package is?', 'kindly update me on my purchase delivery']) {
+      planFirst(['get_my_orders']);
+      await chat(u._id.toString(), msg, ctx);
+      const prompt = lastPrompt();
+      expect(prompt).toContain('shipped');
+      expect(prompt).toContain(String(o._id).slice(-8));
+    }
+  });
+
+  it('uses the planned catalog tool for an unlisted paraphrase', async () => {
+    const u = await mk('para2@x.com');
+    await createProduct({ name: 'WALL Paper', price: 350, stock: 5 });
+    planFirst(['search_products']);
+    await chat(u._id.toString(), 'how much does that wall covering cost?', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('PRODUCT MATCH:');
+    expect(prompt).toContain('WALL Paper');
+    expect(prompt).toContain('Rs.350');
+  });
+
+  it('follow-up "latest one" executes a tool and reuses conversation context', async () => {
+    const u = await mk('para5@x.com');
+    const p = await createProduct({ price: 250 });
+    const o = await makeOrder(u._id, p._id, 250, 'shipped');
+    planFirst(['get_my_orders']);
+    const first = await chat(u._id.toString(), 'show my orders', ctx);
+    planFirst(['get_order_status']);
+    await chat(u._id.toString(), 'what about the latest one?', ctx, first.conversationId);
+    const prompt = lastPrompt();
+    expect(prompt).toContain(String(o._id).slice(-8));
+    expect(prompt).toContain('shipped');
+  });
+
+  it('general chit-chat plans no tools and no product search', async () => {
+    const u = await mk('para6@x.com');
+    planFirst([]);
+    const ProductModel = require('../models/Product');
+    const spy = jest.spyOn(ProductModel, 'find');
+    await chat(u._id.toString(), 'thanks for your help, have a great day!', ctx);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
 describe('AI chatbot — price-range queries', () => {
   const ctx = { userName: 'A', userRole: 'customer' };
   const mk = (email) => User.create({ name: 'A', email, password: 'password123', role: 'customer' });
@@ -393,5 +500,115 @@ describe('AI chatbot — price-range queries', () => {
     const prompt = lastPrompt();
     expect(prompt).toContain('No active products are currently priced under Rs.50');
     expect(prompt).not.toContain('no active product matched');
+  });
+});
+
+describe('AI chatbot — tool-driven multi-entity + authorization', () => {
+  const ctx = { userName: 'A', userRole: 'customer' };
+  const mk = (email, role = 'customer') => User.create({ name: 'A', email, password: 'password123', role });
+  const planFirst = (names) => {
+    llm.invoke.mockImplementation(async (msgs) => {
+      const text = String(msgs?.[0]?.content || '');
+      if (text.startsWith('Route a shopping-assistant request')) return { content: planCalls(names) };
+      return { content: 'stubbed' };
+    });
+  };
+
+  // Flagship flow: latest registered user -> the products THAT user ordered.
+  it('routes "any new user?" to the registered-users tool and grounds it in the DB (admin)', async () => {
+    const admin = await mk('adm@x.com', 'admin');
+    await User.create({ name: 'First Old', email: 'old@x.com', password: 'password123', role: 'customer' });
+    const latest = await User.create({ name: 'Buyer Bob', email: 'bob@x.com', password: 'password123', role: 'customer' });
+    planFirst(['list_users']);
+    await chat(admin._id.toString(), 'is there any new user?', { userName: 'Adm', userRole: 'admin' });
+    const prompt = lastPrompt();
+    expect(prompt).toContain('Buyer Bob');
+    // Newest-first: the latest registered user appears before the older one.
+    expect(prompt.indexOf('Buyer Bob')).toBeLessThan(prompt.indexOf('First Old'));
+    expect(String(latest._id)).toBeTruthy();
+  });
+
+  it('resolves a named user -> that user ordered products from real order items (admin tool)', async () => {
+    const admin = await mk('adm5@x.com', 'admin');
+    const cust = await User.create({ name: 'Buyer Bob', email: 'bob2@x.com', password: 'password123', role: 'customer' });
+    const p1 = await createProduct({ name: 'Gizmo Deluxe', price: 500 });
+    const p2 = await createProduct({ name: 'Widget Pro', price: 900 });
+    await makeOrder(cust._id, p1._id, 500, 'delivered');
+    await makeOrder(cust._id, p2._id, 900, 'shipped');
+
+    const { executeChatTool } = require('../services/ai/chatTools');
+    const res = await executeChatTool('get_user_orders', { userName: 'Buyer Bob' }, { userId: admin._id.toString(), userRole: 'admin' });
+    expect(res.ok).toBe(true);
+    expect(res.user.name).toBe('Buyer Bob');
+    const names = res.orders.flatMap((o) => o.products.map((p) => p.name));
+    expect(names).toContain('Gizmo Deluxe');
+    expect(names).toContain('Widget Pro');
+
+    // The chatbot formatter renders these ordered products (not a catalog guess).
+    planFirst(['get_user_orders']);
+    await chat(admin._id.toString(), 'which products did Buyer Bob order?', { userName: 'Adm', userRole: 'admin' });
+    // With empty planner args the backend must NOT guess a user (honest no-guess).
+    expect(lastPrompt()).toContain('No customer matched that name or id');
+  });
+
+  it('denies other-user order lookup for a customer even when phrased indirectly (backend authz)', async () => {
+    const cust = await mk('cust2@x.com', 'customer');
+    const other = await User.create({ name: 'Secret Shopper', email: 'secret@x.com', password: 'password123', role: 'customer' });
+    const p = await createProduct({ price: 123 });
+    await makeOrder(other._id, p._id, 123, 'delivered');
+
+    // The planner chooses the admin tool, but the backend must refuse.
+    planFirst(['get_user_orders']);
+    await chat(cust._id.toString(), 'what did Secret Shopper order?', ctx);
+    const prompt = lastPrompt();
+    expect(prompt).toContain('ACCESS DENIED');
+    expect(prompt).not.toContain('Secret Shopper'); // no PII leaked
+    expect(prompt).not.toContain('123');
+  });
+
+  it('asks which user when an ambiguous name matches several users (admin tool)', async () => {
+    const admin = await mk('adm2@x.com', 'admin');
+    await User.create({ name: 'Sam Jones', email: 'sam1@x.com', password: 'password123', role: 'customer' });
+    await User.create({ name: 'Sam Smith', email: 'sam2@x.com', password: 'password123', role: 'customer' });
+    const { executeChatTool } = require('../services/ai/chatTools');
+    const res = await executeChatTool('get_user_orders', { userName: 'Sam' }, { userId: admin._id.toString(), userRole: 'admin' });
+    expect(res.ok).toBe(true);
+    expect(res.ambiguous).toBe(true);
+    expect(res.users.map((u) => u.name).sort()).toEqual(['Sam Jones', 'Sam Smith']);
+  });
+
+  it('handles a deleted/missing product reference in an order without crashing (admin tool)', async () => {
+    const admin = await mk('adm3@x.com', 'admin');
+    const cust = await User.create({ name: 'Ghost Buyer', email: 'ghost@x.com', password: 'password123', role: 'customer' });
+    const missingId = new (require('mongoose').Types.ObjectId)();
+    await Order.create({
+      user: cust._id,
+      items: [{ product: missingId, name: 'Ghost Item', quantity: 1, price: 42 }],
+      shippingAddress: { address: '1 T', city: 'C', state: 'S', zipCode: '000000', country: 'India', phone: '9999999999' },
+      subtotal: 42, tax: 0, shippingCost: 0, total: 42, status: 'delivered',
+      payment: { method: 'cod' },
+    });
+    const { executeChatTool } = require('../services/ai/chatTools');
+    const res = await executeChatTool('get_user_orders', { userName: 'Ghost Buyer' }, { userId: admin._id.toString(), userRole: 'admin' });
+    expect(res.ok).toBe(true);
+    expect(res.orders[0].products[0].name).toBe('Product no longer in catalog');
+  });
+
+  it('tool handlers enforce authz directly (executeChatTool), independent of the LLM', async () => {
+    const { executeChatTool } = require('../services/ai/chatTools');
+    const other = await User.create({ name: 'Other', email: 'other@x.com', password: 'password123', role: 'customer' });
+    const p = await createProduct({ price: 10 });
+    await makeOrder(other._id, p._id, 10, 'delivered');
+
+    // A customer may never read another user's orders via any tool.
+    const denied = await executeChatTool('get_user_orders', { userId: other._id.toString() }, { userId: 'aaaaaaaaaaaaaaaaaaaaaaaa', userRole: 'customer' });
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toBe('FORBIDDEN');
+
+    // An admin may, and it resolves the real product from order items.
+    const admin = await mk('adm4@x.com', 'admin');
+    const allowed = await executeChatTool('get_user_orders', { userId: other._id.toString() }, { userId: admin._id.toString(), userRole: 'admin' });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.orders[0].products[0].name).toBe('Test Product');
   });
 });

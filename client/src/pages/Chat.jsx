@@ -167,8 +167,9 @@ export default function Chat() {
         };
         setMessages(prev => [...prev, aiMessage]);
         
-        // Update current conversation ID if this was a new conversation
-        if (data.conversationId && !currentConversationId) {
+        // Adopt the conversation the server actually used (a new one, or a
+        // replacement when the stored id no longer belongs to this user)
+        if (data.conversationId && data.conversationId !== currentConversationId) {
           setCurrentConversationId(data.conversationId);
           // Refresh conversations list to show the new conversation
           loadConversations();
@@ -252,8 +253,8 @@ export default function Chat() {
         };
         setMessages(prev => [...prev, aiMessage]);
 
-        // Update conversation ID if new
-        if (res.data.conversationId && !currentConversationId) {
+        // Adopt the conversation the server actually used
+        if (res.data.conversationId && res.data.conversationId !== currentConversationId) {
           setCurrentConversationId(res.data.conversationId);
           loadConversations();
         }

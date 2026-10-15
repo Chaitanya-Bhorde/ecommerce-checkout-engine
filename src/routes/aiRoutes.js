@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { chat, clearChatHistory, getChatHistory, getConversations, deleteConversation, shouldEscalateToHuman, getSuggestedReplies } = require('../services/ai/chatbot');
+const { chat, clearChatHistory, getChatHistory, getConversations, deleteConversation, shouldEscalateToHuman, getSuggestedReplies, resolveOwnedConversationId } = require('../services/ai/chatbot');
 const { runAgent } = require('../services/ai/agentWorkflow');
 const { protect, admin } = require('../middleware/authMiddleware');
 const Conversation = require('../models/Conversation');
@@ -80,8 +80,9 @@ router.post('/chat', protect, async (req, res) => {
       debugLog(`[AI Route] Handled by agent (action: ${agentResult.action || 'confirmation/none'})`);
       response = agentResult.response;
       
-      // Save agent-handled messages to conversation history
-      let currentConversationId = conversationId;
+      // Save agent-handled messages to conversation history. A client-supplied
+      // conversation is only reused when it belongs to this authenticated user.
+      let currentConversationId = await resolveOwnedConversationId(conversationId, authenticatedUserId);
       if (!currentConversationId) {
         const title = message.substring(0, 40) + (message.length > 40 ? '...' : '');
         const conversation = await Conversation.create({
@@ -587,8 +588,9 @@ router.post('/upload-receipt', protect, upload.single('receipt'), async (req, re
       message = 'I had trouble reading your receipt. Please provide your order ID or describe your issue, and I\'ll be happy to help!';
     }
 
-    // Create or update conversation
-    let currentConversationId = conversationId;
+    // Create or update conversation (only reuse a client-supplied conversation
+    // when it belongs to this authenticated user)
+    let currentConversationId = await resolveOwnedConversationId(conversationId, userId);
     if (!currentConversationId) {
       const conversation = await Conversation.create({
         userId: userId,
