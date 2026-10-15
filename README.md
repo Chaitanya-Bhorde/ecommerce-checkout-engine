@@ -1,5 +1,7 @@
 # E-Commerce Checkout Engine
 
+[![CI](https://github.com/Chaitanya-Bhorde/ecommerce-checkout-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Chaitanya-Bhorde/ecommerce-checkout-engine/actions/workflows/ci.yml)
+
 A full-stack e-commerce application with complete checkout flow, payment integration, and admin dashboard.
 
 ## 🚀 Features
